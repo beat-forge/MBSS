@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MassBeatSaberStripper", "MassBeatSaberStripper\MassBeatSaberStripper.csproj", "{7D68EB58-7589-40EC-AB7A-0E2F122D4D85}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MBSS", "MBSS\MBSS.csproj", "{7D68EB58-7589-40EC-AB7A-0E2F122D4D85}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

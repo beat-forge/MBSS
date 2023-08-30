@@ -1,0 +1,40 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - v*
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  publish:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 7.0.x
+
+      - uses: actions/cache@v3
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/MBSS.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Zip
+        run: Compress-Archive -Path .\MBSS\bin\Release\net7.0\* -DestinationPath MBSS.zip
+
+      - name: Publish to Release
+        run: gh release upload ${{ github.ref_name }} MBSS.zip --clobber
