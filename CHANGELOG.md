@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/beat-forge/MBSS/compare/v1.1.0...v1.1.1) (2023-08-31)
+
+
+### Bug Fixes
+
+* don't stage if no changes ([793e051](https://github.com/beat-forge/MBSS/commit/793e051e17a6ad24095417abf25ac5e1814253c0))
+
 ## [1.1.0](https://github.com/beat-forge/MBSS/compare/v1.0.0...v1.1.0) (2023-08-31)
 
 
