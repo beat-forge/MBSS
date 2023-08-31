@@ -110,6 +110,9 @@ internal abstract class Program
             var author = new Signature(Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME"),
                 Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL"), DateTimeOffset.Now);
 
+            var status = repo.RetrieveStatus();
+            if (!status.IsDirty) continue; // No changes, skip
+
             Commands.Stage(repo, versionPath);
             repo.Commit($"chore: v{version.Version}", author, author);
 
@@ -123,8 +126,7 @@ internal abstract class Program
                 }
             };
 
-            if (remote != null)
-                repo.Network.Push(remote, @"refs/heads/main", options);
+            if (remote != null) repo.Network.Push(remote, @"refs/heads/main", options);
         }
     }
 
