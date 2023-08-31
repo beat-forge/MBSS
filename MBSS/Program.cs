@@ -16,12 +16,24 @@ internal class BeatSaberVersion
 
 internal abstract class Program
 {
-    public static async Task Main()
+    public static async Task Main(string[] args)
     {
         InitConsole();
 
         var client = new HttpClient();
         client.DefaultRequestHeaders.Add("User-Agent", "MBSS");
+
+        #region Arguments
+
+        if (args.Length > 0 && args[0] == "--reset")
+        {
+            AnsiConsole.MarkupLine("[red]Resetting MBSS and deleting all files...[/]");
+            if (Directory.Exists("versions")) Directory.Delete("versions", true);
+            if (Directory.Exists("downloads")) Directory.Delete("downloads", true);
+            if (Directory.Exists("bin")) Directory.Delete("bin", true);
+        }
+
+        #endregion
 
         #region Versions
 
@@ -72,47 +84,27 @@ internal abstract class Program
         if (!File.Exists("bin/DepotDownloader.exe")) await GetDepotDownloader(client);
         if (!File.Exists("bin/GenericStripper.exe")) await GetGenericStripper(client);
 
-        #endregion
-
         var downloadDir = new DirectoryInfo("downloads");
         var versionsDir = new DirectoryInfo("versions");
 
         if (!downloadDir.Exists) downloadDir.Create();
         if (!versionsDir.Exists) versionsDir.Create();
 
+        #endregion
+
+
         foreach (var version in versions)
         {
             var downloadPath = Path.Combine(downloadDir.FullName, $"{version.Version}");
             var versionPath = Path.Combine(versionsDir.FullName, $"{version.Version}");
-
-            if (Directory.Exists(versionPath)) continue;
-
-            var depotDownloader = new Process
+            if (Directory.Exists(versionPath))
             {
-                StartInfo =
-                {
-                    FileName = "bin/DepotDownloader.exe",
-                    Arguments =
-                        $"-app 620980 -depot 620981 -manifest \"{version.Manifest}\" -dir {downloadPath} -remember-password -username \"{Environment.GetEnvironmentVariable("STEAM_USERNAME")}\" -password \"{Environment.GetEnvironmentVariable("STEAM_PASSWORD")}\""
-                }
-            };
+                AnsiConsole.MarkupLine($"[yellow]Version {version.Version} already exists, skipping...[/]");
+                continue;
+            }
 
-            depotDownloader.Start();
-            await depotDownloader.WaitForExitAsync();
-
-            var genericStripper = new Process
-            {
-                StartInfo =
-                {
-                    FileName = "bin/GenericStripper.exe",
-                    Arguments = $"strip -m beatsaber -p \"{downloadPath}\" -o \"{versionPath}\""
-                }
-            };
-
-            genericStripper.Start();
-            await genericStripper.WaitForExitAsync();
-
-            AnsiConsole.MarkupLine($"[green]Stripped {version.Version}![/]");
+            await GetAndStrip(version, downloadPath, versionPath);
+            AnsiConsole.MarkupLine($"[green]Version {version.Version} stripped![/]");
 
             using var repo = new Repository(Directory.GetCurrentDirectory());
             var author = new Signature(Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME"),
@@ -121,7 +113,6 @@ internal abstract class Program
             Commands.Stage(repo, versionPath);
             repo.Commit($"chore: v{version.Version}", author, author);
 
-            Directory.Delete(downloadPath, true);
             var remote = repo.Network.Remotes["origin"];
             var options = new PushOptions
             {
@@ -135,6 +126,36 @@ internal abstract class Program
             if (remote != null)
                 repo.Network.Push(remote, @"refs/heads/main", options);
         }
+    }
+
+    private static async Task GetAndStrip(BeatSaberVersion version, string downloadPath, string versionPath)
+    {
+        var depotDownloader = new Process
+        {
+            StartInfo =
+            {
+                FileName = "bin/DepotDownloader.exe",
+                Arguments =
+                    $"-app 620980 -depot 620981 -manifest \"{version.Manifest}\" -dir {downloadPath} -remember-password -username \"{Environment.GetEnvironmentVariable("STEAM_USERNAME")}\" -password \"{Environment.GetEnvironmentVariable("STEAM_PASSWORD")}\""
+            }
+        };
+
+        depotDownloader.Start();
+        await depotDownloader.WaitForExitAsync();
+
+        var genericStripper = new Process
+        {
+            StartInfo =
+            {
+                FileName = "bin/GenericStripper.exe",
+                Arguments = $"strip -m beatsaber -p \"{downloadPath}\" -o \"{versionPath}\""
+            }
+        };
+
+        genericStripper.Start();
+        await genericStripper.WaitForExitAsync();
+
+        if (Directory.Exists(downloadPath)) Directory.Delete(downloadPath, true);
     }
 
     private static void InitConsole()
