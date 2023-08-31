@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/beat-forge/MBSS/compare/v1.0.0...v1.1.0) (2023-08-31)
+
+
+### Features
+
+* added `--reset` for cleaning the repository and running again. ([b462e55](https://github.com/beat-forge/MBSS/commit/b462e557c3fa0062a72adcf16a6def9c930d77c2))
+
 ## 1.0.0 (2023-08-30)
 
 
