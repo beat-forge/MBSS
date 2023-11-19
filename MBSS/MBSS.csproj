@@ -10,7 +10,7 @@
     <ItemGroup>
         <PackageReference Include="LibGit2Sharp" Version="0.28.0"/>
         <PackageReference Include="Newtonsoft.Json" Version="13.0.3"/>
-        <PackageReference Include="Spectre.Console" Version="0.47.1-preview.0.38"/>
+        <PackageReference Include="Spectre.Console" Version="0.47.1-preview.0.40"/>
     </ItemGroup>
 
 </Project>
