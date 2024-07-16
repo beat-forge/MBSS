@@ -45,7 +45,13 @@ namespace MBSS
 
             if (!await PerformPreflightChecks(client)) return;
 
-            var versions = JsonConvert.DeserializeObject<List<BeatSaberVersion>>(await File.ReadAllTextAsync(VersionsFile));
+            var versionsJson = await File.ReadAllTextAsync(VersionsFile);
+            var versions = JsonConvert.DeserializeObject<List<BeatSaberVersion>>(versionsJson);
+            if (versions == null)
+            {
+                AnsiConsole.MarkupLine("[red]Failed to parse versions.json![/]");
+                return;
+            }
 
             foreach (var version in versions)
             {
