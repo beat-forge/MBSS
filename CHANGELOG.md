@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/beat-forge/MBSS/compare/v1.2.1...v1.2.2) (2024-07-16)
+
+
+### Bug Fixes
+
+* resolve variable naming conflict, null dereference warning, and missing await warning ([56964e7](https://github.com/beat-forge/MBSS/commit/56964e72f55732c54508ac78188f852ca7a6a85e))
+
 ## [1.2.1](https://github.com/beat-forge/MBSS/compare/v1.2.0...v1.2.1) (2024-07-16)
 
 
