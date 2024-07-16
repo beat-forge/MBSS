@@ -176,19 +176,19 @@ namespace MBSS
             }
 
             AnsiConsole.MarkupLine("[yellow]Available assets:[/]");
-            foreach (var asset in assets)
+            foreach (var assetItem in assets)
             {
-                AnsiConsole.MarkupLine($"- {asset["name"]?.ToString()}");
+                AnsiConsole.MarkupLine($"- {assetItem["name"]?.ToString()}");
             }
 
-            var asset = assets.FirstOrDefault(x => x["name"]?.ToString().Contains("windows-x64") ?? false);
-            if (asset == null)
+            var assetItem = assets.FirstOrDefault(x => x["name"]?.ToString().Contains("windows-x64") ?? false);
+            if (assetItem == null)
             {
                 AnsiConsole.MarkupLine("[red]Failed to find a suitable asset for the current system![/]");
                 throw new Exception($"Failed to find a suitable asset for {Path.GetFileName(outputPath)}!");
             }
 
-            var assetUrl = asset["browser_download_url"]?.ToString();
+            var assetUrl = assetItem["browser_download_url"]?.ToString();
             if (string.IsNullOrEmpty(assetUrl))
             {
                 AnsiConsole.MarkupLine("[red]Asset URL is empty![/]");
