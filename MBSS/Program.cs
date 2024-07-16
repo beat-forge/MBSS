@@ -335,6 +335,13 @@ namespace MBSS
         {
             using var repo = new Repository(Directory.GetCurrentDirectory());
             string versionsMdPath = Path.Combine(Directory.GetCurrentDirectory(), VersionsMdFile);
+
+            if (!File.Exists(versionsMdPath))
+            {
+                await File.WriteAllTextAsync(versionsMdPath, "# Versions\n");
+                Commands.Stage(repo, VersionsMdFile);
+            }
+
             string versionsMdContent = await File.ReadAllTextAsync(versionsMdPath);
 
             var lines = versionsMdContent.Split('\n').ToList();
