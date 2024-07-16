@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/beat-forge/MBSS/compare/v1.3.1...v1.3.2) (2024-07-16)
+
+
+### Bug Fixes
+
+* Fix issue with extracting files to the bin directory ([7321aaa](https://github.com/beat-forge/MBSS/commit/7321aaa7954532d24065572c8d1bad6872ad89dc))
+
 ## [1.3.1](https://github.com/beat-forge/MBSS/compare/v1.3.0...v1.3.1) (2024-07-16)
 
 
