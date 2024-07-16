@@ -320,12 +320,12 @@ namespace MBSS
 
             var pushOptions = new PushOptions
             {
-                CredentialsProvider = (_, _, _) => new UsernamePasswordCredentials { Username = Environment.GetEnvironmentVariable("GITHUB_TOKEN") }
+                CredentialsProvider = (_, _, _) => new UsernamePasswordCredentials { Username = Environment.GetEnvironmentVariable("GITHUB_TOKEN"), Password = string.Empty }
             };
 
             repo.Network.Push(repo.Branches[branchName], pushOptions);
         }
-        
+
         private static async Task SetupDotEnv()
         {
             var dotenv = await File.ReadAllLinesAsync(EnvFile);
