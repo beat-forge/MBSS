@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/beat-forge/MBSS/compare/v1.1.1...v1.2.0) (2024-07-16)
+
+
+### Features
+
+* fully implement version-specific branching and directory structure ([53a3c49](https://github.com/beat-forge/MBSS/commit/53a3c499d43ffeb03877b2e5b34572d9c8e722c8))
+* **git:** switch to per branch versioning ([51a418c](https://github.com/beat-forge/MBSS/commit/51a418cce886190a268bfcbe3f2312307a3d7325))
+
 ## [1.1.1](https://github.com/beat-forge/MBSS/compare/v1.1.0...v1.1.1) (2023-08-31)
 
 
