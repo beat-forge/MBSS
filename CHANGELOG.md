@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.3](https://github.com/beat-forge/MBSS/compare/v1.2.2...v1.2.3) (2024-07-16)
+
+
+### Bug Fixes
+
+* actually fix it this time, had the wrong version of .NET. ([ed1ef4e](https://github.com/beat-forge/MBSS/commit/ed1ef4e1a98c743437794b7a4c79ea421465a11a))
+* address CS8602 and CS1998 warnings ([99b27bc](https://github.com/beat-forge/MBSS/commit/99b27bcf1133ddae21a0ff17e2342911290c5a58))
+
 ## [1.2.2](https://github.com/beat-forge/MBSS/compare/v1.2.1...v1.2.2) (2024-07-16)
 
 
