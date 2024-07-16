@@ -10,10 +10,10 @@ namespace MBSS
 {
     internal class BeatSaberVersion
     {
-        [JsonProperty("version")] 
+        [JsonProperty("version")]
         public string Version { get; set; } = string.Empty;
 
-        [JsonProperty("manifest")] 
+        [JsonProperty("manifest")]
         public string Manifest { get; set; } = string.Empty;
     }
 
@@ -50,18 +50,20 @@ namespace MBSS
             foreach (var version in versions)
             {
                 var downloadPath = Path.Combine("downloads", version.Version);
-                var versionPath = Path.Combine(Directory.GetCurrentDirectory(), version.Version);
+                var versionPath = Path.Combine(Directory.GetCurrentDirectory(), "data");
 
-                if (Directory.Exists(versionPath))
+                var branchName = $"versions/{version.Version}";
+                if (Directory.Exists(versionPath) &&
+                    File.ReadAllText(Path.Combine(versionPath, "version.txt")).Trim() == version.Version)
                 {
-                    AnsiConsole.MarkupLine($"[yellow]Version {version.Version} already exists, skipping...[/]");
+                    AnsiConsole.MarkupLine($"[yellow]Version {version.Version} already exists in branch {branchName}, skipping...[/]");
                     continue;
                 }
 
                 await GetAndStrip(version, downloadPath, versionPath);
                 AnsiConsole.MarkupLine($"[green]Version {version.Version} stripped![/]");
 
-                await CommitAndPushVersion(version);
+                await CommitAndPushVersion(version, branchName, versionPath);
             }
         }
 
@@ -176,6 +178,8 @@ namespace MBSS
             await RunProcess(GenericStripperExe, $"strip -m beatsaber -p \"{downloadPath}\" -o \"{versionPath}\"");
 
             if (Directory.Exists(downloadPath)) Directory.Delete(downloadPath, true);
+            
+            await File.WriteAllTextAsync(Path.Combine(versionPath, "version.txt"), version.Version);
         }
 
         private static async Task RunProcess(string fileName, string arguments)
@@ -197,19 +201,18 @@ namespace MBSS
             await process.WaitForExitAsync();
         }
 
-        private static async Task CommitAndPushVersion(BeatSaberVersion version)
+        private static async Task CommitAndPushVersion(BeatSaberVersion version, string branchName, string versionPath)
         {
             using var repo = new Repository(Directory.GetCurrentDirectory());
             var author = new Signature(Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME"), Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL"), DateTimeOffset.Now);
 
-            var branchName = $"version/{version.Version}";
             var branch = repo.Branches[branchName] ?? repo.CreateBranch(branchName);
             Commands.Checkout(repo, branch);
 
             var status = repo.RetrieveStatus();
-            if (!status.IsDirty) return; // No changes, skip
+            if (!status.IsDirty) return;
 
-            Commands.Stage(repo, Path.Combine(Directory.GetCurrentDirectory(), version.Version));
+            Commands.Stage(repo, "*");
             repo.Commit($"chore: v{version.Version}", author, author);
 
             var remote = repo.Network.Remotes["origin"];
