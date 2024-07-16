@@ -176,9 +176,9 @@ namespace MBSS
             }
 
             AnsiConsole.MarkupLine("[yellow]Available assets:[/]");
-            foreach (var assetItem in assets)
+            foreach (var asset in assets)
             {
-                AnsiConsole.MarkupLine($"- {assetItem["name"]?.ToString()}");
+                AnsiConsole.MarkupLine($"- {asset["name"]?.ToString()}");
             }
 
             var assetItem = assets.FirstOrDefault(x => x["name"]?.ToString().Contains("windows-x64") ?? false);
