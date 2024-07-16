@@ -309,8 +309,6 @@ namespace MBSS
             using var repo = new Repository(Directory.GetCurrentDirectory());
             var author = new Signature(Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME"), Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL"), DateTimeOffset.Now);
 
-            AnsiConsole.MarkupLine($"[yellow]Current branch: {repo.Head.FriendlyName}[/]");
-
             var branch = repo.Branches[branchName] ?? repo.CreateBranch(branchName);
             Commands.Checkout(repo, branch);
 
@@ -335,39 +333,51 @@ namespace MBSS
 
         public static async Task UpdateAndCommitVersionsMd(BeatSaberVersion version)
         {
-            var versionsMdPath = Path.Combine(Directory.GetCurrentDirectory(), VersionsMdFile);
-            var versionsMd = new StringBuilder();
+            using var repo = new Repository(Directory.GetCurrentDirectory());
+            string versionsMdPath = Path.Combine(Directory.GetCurrentDirectory(), VersionsMdFile);
+            string versionsMdContent = await File.ReadAllTextAsync(versionsMdPath);
 
-            if (File.Exists(versionsMdPath))
+            var lines = versionsMdContent.Split('\n').ToList();
+            var versions = lines
+                .Skip(1)
+                .Select(line => line.Trim().Replace("- [v", "").Split(']')[0])
+                .ToList();
+
+            if (versions.Contains(version.Version)) return;
+
+            versions.Add(version.Version);
+            versions = versions.OrderByDescending(v => v).ToList();
+
+            var newContent = new StringBuilder();
+            newContent.AppendLine("# Versions");
+            foreach (var v in versions)
             {
-                var lines = await File.ReadAllLinesAsync(versionsMdPath);
-                var versions = new List<string>();
-
-                foreach (var line in lines)
-                {
-                    if (line.StartsWith("- [v"))
-                    {
-                        var versionString = line.Split("v")[1].Split("]")[0];
-                        versions.Add(versionString);
-                    }
-                }
-
-                versions.Add(version.Version);
-                versions = versions.OrderByDescending(x => x).ToList();
-
-                versionsMd.AppendLine("# Versions");
-                foreach (var v in versions)
-                {
-                    versionsMd.AppendLine($"- [v{v}](https://github.com/beat-forge/beatsaber-stripped/tree/versions/{v})");
-                }
-            }
-            else
-            {
-                versionsMd.AppendLine("# Versions");
-                versionsMd.AppendLine($"- [v{version.Version}](https://github.com/beat-forge/beatsaber-stripped/tree/versions/{version.Version})");
+                newContent.AppendLine($"- [v{v}](https://github.com/beat-forge/beatsaber-stripped/tree/versions/{v})");
             }
 
-            await File.WriteAllTextAsync(versionsMdPath, versionsMd.ToString());
+            await File.WriteAllTextAsync(versionsMdPath, newContent.ToString());
+            Commands.Stage(repo, VersionsMdFile);
+
+            var authorName = Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME");
+            var authorEmail = Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL");
+            var signature = new Signature(authorName, authorEmail, DateTimeOffset.Now);
+
+            repo.Commit($"chore: update versions.md with v{version.Version}", signature, signature);
+
+            var remote = repo.Network.Remotes["origin"];
+            var options = new PushOptions
+            {
+                CredentialsProvider = (_, _, _) => new UsernamePasswordCredentials
+                {
+                    Username = Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME"),
+                    Password = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
+                }
+            };
+
+            if (remote != null)
+            {
+                repo.Network.Push(remote, @"refs/heads/main", options);
+            }
         }
 
         private static async Task SetupDotEnv()
