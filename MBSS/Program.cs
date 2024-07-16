@@ -227,7 +227,6 @@ namespace MBSS
 
             AnsiConsole.MarkupLine($"[green]Process {fileName} completed successfully.[/]");
         }
-
         private static async Task DownloadAndExtract(HttpClient client, string url, string outputPath)
         {
             AnsiConsole.MarkupLine($"[yellow]{Path.GetFileName(outputPath)} does not exist, downloading...[/]");
@@ -296,7 +295,11 @@ namespace MBSS
 
             await using var assetStream = await assetRes.Content.ReadAsStreamAsync();
             using var archive = new ZipArchive(assetStream);
-            archive.ExtractToDirectory(Path.Combine(Directory.GetCurrentDirectory(), "bin"));
+
+            string extractPath = Path.Combine(Directory.GetCurrentDirectory(), "bin");
+
+            if (!Directory.Exists(extractPath)) Directory.CreateDirectory(extractPath);
+            archive.ExtractToDirectory(extractPath, true);
 
             AnsiConsole.MarkupLine($"[green]{Path.GetFileName(outputPath)} downloaded and extracted successfully![/]");
         }
