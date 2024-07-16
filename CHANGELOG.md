@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/beat-forge/MBSS/compare/v1.2.0...v1.2.1) (2024-07-16)
+
+
+### Bug Fixes
+
+* Handle errors when downloading and extracting assets ([b95f161](https://github.com/beat-forge/MBSS/commit/b95f161cfbf10c9606484be12f958d70f210ef47))
+
 ## [1.2.0](https://github.com/beat-forge/MBSS/compare/v1.1.1...v1.2.0) (2024-07-16)
 
 
