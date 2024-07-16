@@ -197,7 +197,8 @@ namespace MBSS
                 if (args.Data != null)
                 {
                     outputBuilder.AppendLine(args.Data);
-                    AnsiConsole.MarkupLine($"[yellow]{args.Data}[/]");
+                    var escapedOutput = args.Data.Replace("[", "[[").Replace("]", "]]");
+                    AnsiConsole.MarkupLine($"[yellow]{escapedOutput}[/]");
                 }
             };
             process.ErrorDataReceived += (sender, args) =>
@@ -205,7 +206,8 @@ namespace MBSS
                 if (args.Data != null)
                 {
                     errorBuilder.AppendLine(args.Data);
-                    AnsiConsole.MarkupLine($"[red]{args.Data}[/]");
+                    var escapedError = args.Data.Replace("[", "[[").Replace("]", "]]");
+                    AnsiConsole.MarkupLine($"[red]{escapedError}[/]");
                 }
             };
 
@@ -219,7 +221,7 @@ namespace MBSS
             {
                 var errorOutput = errorBuilder.ToString();
                 AnsiConsole.MarkupLine($"[red]Process {fileName} failed with exit code {process.ExitCode}[/]");
-                AnsiConsole.MarkupLine($"[red]Error Output: {errorOutput}[/]");
+                AnsiConsole.MarkupLine($"[red]Error Output: {errorOutput.Replace("[", "[[").Replace("]", "]]")}[/]");
                 throw new Exception($"Process {fileName} failed with exit code {process.ExitCode}. Error Output: {errorOutput}");
             }
 
