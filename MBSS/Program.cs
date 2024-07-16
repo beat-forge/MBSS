@@ -27,7 +27,6 @@ namespace MBSS
         private const string VersionsFile = "versions.json";
         private const string DepotDownloaderExe = "bin/DepotDownloader.exe";
         private const string GenericStripperExe = "bin/GenericStripper.exe";
-        private const string VersionsMdFile = "versions.md";
         private static readonly string[] RequiredEnvs = { "STEAM_USERNAME", "STEAM_PASSWORD", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GITHUB_TOKEN" };
 
         public static async Task Main(string[] args)
@@ -36,8 +35,6 @@ namespace MBSS
 
             using var client = new HttpClient();
             client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-
-            HandleResetArgument(args);
 
             if (!await LoadAndValidateVersions(VersionsFile)) return;
 
@@ -57,23 +54,33 @@ namespace MBSS
 
             foreach (var version in versions)
             {
-                var downloadPath = Path.Combine("downloads", version.Version);
-                var versionPath = Path.Combine(Directory.GetCurrentDirectory(), "data");
+                AnsiConsole.MarkupLine($"[yellow]Processing version {version.Version}...[/]");
 
-                var branchName = $"versions/{version.Version}";
-                if (Repository.IsValid(Directory.GetCurrentDirectory()) && new Repository(Directory.GetCurrentDirectory()).Branches[branchName] != null)
+                var branchName = $"v{version.Version}";
+                if (Repository.IsValid(Directory.GetCurrentDirectory()) && new Repository(Directory.GetCurrentDirectory()).Branches[branchName] != null && !args.Contains("--force"))
                 {
-                    AnsiConsole.MarkupLine($"[yellow]Version {version.Version} already exists in branch {branchName}, skipping...[/]");
+                    AnsiConsole.MarkupLine($"[yellow]Branch {branchName} already exists, skipping...[/]");
                     continue;
                 }
 
-                AnsiConsole.MarkupLine($"[green]Stripping {version.Version}[/]");
-                await GetAndStrip(version, downloadPath);
-                AnsiConsole.MarkupLine($"[green]Version {version.Version} stripped![/]");
+                var downloadPath = Path.Combine("downloads", version.Version);
+                DeleteDirectoryIfExists(downloadPath);
 
-                await UpdateAndCommitVersionsMd(version);
-                CommitAndPushVersion(version, branchName);
+                try
+                {
+                    await GetAndStrip(version, downloadPath);
+                    CommitAndPushVersion(version, branchName);
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine($"[red]Failed to process version {version.Version}: {ex.Message}[/]");
+                    continue;
+                }
+
+                AnsiConsole.MarkupLine($"[green]Version {version.Version} processed successfully![/]");
             }
+
+            AnsiConsole.MarkupLine("[green]All versions processed successfully![/]");
         }
 
         private static void InitConsole()
@@ -82,16 +89,6 @@ namespace MBSS
             AnsiConsole.MarkupLine("[green]This program will download and strip the Beat Saber versions listed in versions.json.[/]");
             AnsiConsole.MarkupLine("[green]It will then commit and push the stripped versions to the respective branches of the repository.[/]");
             AnsiConsole.MarkupLine("[green]Ensure you are running MBSS inside the root of your desired versions repository![/]");
-        }
-
-        private static void HandleResetArgument(string[] args)
-        {
-            if (args.Length > 0 && args[0] == "--reset")
-            {
-                AnsiConsole.MarkupLine("[red]Resetting MBSS and deleting all files...[/]");
-                DeleteDirectoryIfExists("downloads");
-                DeleteDirectoryIfExists("bin");
-            }
         }
 
         private static void DeleteDirectoryIfExists(string path)
@@ -307,86 +304,28 @@ namespace MBSS
         private static void CommitAndPushVersion(BeatSaberVersion version, string branchName)
         {
             using var repo = new Repository(Directory.GetCurrentDirectory());
-            var author = new Signature(Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME"), Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL"), DateTimeOffset.Now);
 
-            var branch = repo.Branches[branchName] ?? repo.CreateBranch(branchName);
+            var signature = new Signature(Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME"), Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL"), DateTimeOffset.Now);
+            var branch = repo.Branches[branchName];
+
+            if (branch == null)
+            {
+                branch = repo.CreateBranch(branchName);
+                repo.Branches.Update(branch, b => b.Remote = "origin", b => b.UpstreamBranch = branch.CanonicalName);
+            }
+
             Commands.Checkout(repo, branch);
-
-            var status = repo.RetrieveStatus();
-            if (!status.IsDirty) return;
-
             Commands.Stage(repo, "*");
-            repo.Commit($"chore: v{version.Version}", author, author);
+            repo.Commit($"chore: strip v{version.Version}", signature, signature);
 
-            var remote = repo.Network.Remotes["origin"];
-            var options = new PushOptions
+            var pushOptions = new PushOptions
             {
-                CredentialsProvider = (_, _, _) => new UsernamePasswordCredentials
-                {
-                    Username = Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME"),
-                    Password = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
-                }
+                CredentialsProvider = (_, _, _) => new UsernamePasswordCredentials { Username = Environment.GetEnvironmentVariable("GITHUB_TOKEN") }
             };
 
-            if (remote != null) repo.Network.Push(remote, $"refs/heads/{branchName}", options);
+            repo.Network.Push(repo.Branches[branchName], pushOptions);
         }
-
-        public static async Task UpdateAndCommitVersionsMd(BeatSaberVersion version)
-        {
-            using var repo = new Repository(Directory.GetCurrentDirectory());
-            string versionsMdPath = Path.Combine(Directory.GetCurrentDirectory(), VersionsMdFile);
-
-            if (!File.Exists(versionsMdPath))
-            {
-                await File.WriteAllTextAsync(versionsMdPath, "# Versions\n");
-                Commands.Stage(repo, VersionsMdFile);
-            }
-
-            string versionsMdContent = await File.ReadAllTextAsync(versionsMdPath);
-
-            var lines = versionsMdContent.Split('\n').ToList();
-            var versions = lines
-                .Skip(1)
-                .Select(line => line.Trim().Replace("- [v", "").Split(']')[0])
-                .ToList();
-
-            if (versions.Contains(version.Version)) return;
-
-            versions.Add(version.Version);
-            versions = versions.OrderByDescending(v => v).ToList();
-
-            var newContent = new StringBuilder();
-            newContent.AppendLine("# Versions");
-            foreach (var v in versions)
-            {
-                newContent.AppendLine($"- [v{v}](https://github.com/beat-forge/beatsaber-stripped/tree/versions/{v})");
-            }
-
-            await File.WriteAllTextAsync(versionsMdPath, newContent.ToString());
-            Commands.Stage(repo, VersionsMdFile);
-
-            var authorName = Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME");
-            var authorEmail = Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL");
-            var signature = new Signature(authorName, authorEmail, DateTimeOffset.Now);
-
-            repo.Commit($"chore: update versions.md with v{version.Version}", signature, signature);
-
-            var remote = repo.Network.Remotes["origin"];
-            var options = new PushOptions
-            {
-                CredentialsProvider = (_, _, _) => new UsernamePasswordCredentials
-                {
-                    Username = Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME"),
-                    Password = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
-                }
-            };
-
-            if (remote != null)
-            {
-                repo.Network.Push(remote, @"refs/heads/main", options);
-            }
-        }
-
+        
         private static async Task SetupDotEnv()
         {
             var dotenv = await File.ReadAllLinesAsync(EnvFile);
