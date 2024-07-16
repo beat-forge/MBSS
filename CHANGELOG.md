@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/beat-forge/MBSS/compare/v1.2.3...v1.3.0) (2024-07-16)
+
+
+### Features
+
+* managed versions.md + lots of bug fixes ([e62ba5a](https://github.com/beat-forge/MBSS/commit/e62ba5a82b28b5d646ef149891d94fe2f864174b))
+
 ## [1.2.3](https://github.com/beat-forge/MBSS/compare/v1.2.2...v1.2.3) (2024-07-16)
 
 
