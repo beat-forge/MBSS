@@ -155,21 +155,58 @@ namespace MBSS
             AnsiConsole.MarkupLine($"[yellow]{Path.GetFileName(outputPath)} does not exist, downloading...[/]");
 
             var res = await client.GetAsync(url);
-            if (res.StatusCode != HttpStatusCode.OK) throw new Exception($"Failed to get {Path.GetFileName(outputPath)} release!");
+            if (res.StatusCode != HttpStatusCode.OK)
+            {
+                AnsiConsole.MarkupLine("[red]Failed to get the latest release![/]");
+                throw new Exception($"Failed to get {Path.GetFileName(outputPath)} release!");
+            }
 
             var latestRelease = JsonConvert.DeserializeObject<Dictionary<string, dynamic>>(await res.Content.ReadAsStringAsync());
-            if (latestRelease == null) throw new Exception($"Failed to parse {Path.GetFileName(outputPath)} release!");
+            if (latestRelease == null)
+            {
+                AnsiConsole.MarkupLine("[red]Failed to parse the latest release![/]");
+                throw new Exception($"Failed to parse {Path.GetFileName(outputPath)} release!");
+            }
 
             var assets = latestRelease["assets"] as JArray;
-            var asset = assets?.FirstOrDefault(x => x["name"]?.ToString().Contains("windows-x64") ?? false);
-            if (asset == null) throw new Exception($"Failed to find a {Path.GetFileName(outputPath)} asset for this system!");
+            if (assets == null || !assets.Any())
+            {
+                AnsiConsole.MarkupLine("[red]No assets found in the release![/]");
+                throw new Exception($"No assets found for {Path.GetFileName(outputPath)}!");
+            }
 
-            var assetRes = await client.GetAsync(asset["browser_download_url"]?.ToString());
-            if (assetRes.StatusCode != HttpStatusCode.OK) throw new Exception($"Failed to download {Path.GetFileName(outputPath)} asset!");
+            AnsiConsole.MarkupLine("[yellow]Available assets:[/]");
+            foreach (var asset in assets)
+            {
+                AnsiConsole.MarkupLine($"- {asset["name"]?.ToString()}");
+            }
+
+            var asset = assets.FirstOrDefault(x => x["name"]?.ToString().Contains("windows-x64") ?? false);
+            if (asset == null)
+            {
+                AnsiConsole.MarkupLine("[red]Failed to find a suitable asset for the current system![/]");
+                throw new Exception($"Failed to find a suitable asset for {Path.GetFileName(outputPath)}!");
+            }
+
+            var assetUrl = asset["browser_download_url"]?.ToString();
+            if (string.IsNullOrEmpty(assetUrl))
+            {
+                AnsiConsole.MarkupLine("[red]Asset URL is empty![/]");
+                throw new Exception($"Asset URL is empty for {Path.GetFileName(outputPath)}!");
+            }
+
+            var assetRes = await client.GetAsync(assetUrl);
+            if (assetRes.StatusCode != HttpStatusCode.OK)
+            {
+                AnsiConsole.MarkupLine("[red]Failed to download the asset![/]");
+                throw new Exception($"Failed to download {Path.GetFileName(outputPath)} asset!");
+            }
 
             await using var assetStream = await assetRes.Content.ReadAsStreamAsync();
             using var archive = new ZipArchive(assetStream);
             archive.ExtractToDirectory(Path.Combine(Directory.GetCurrentDirectory(), "bin"));
+
+            AnsiConsole.MarkupLine($"[green]{Path.GetFileName(outputPath)} downloaded and extracted successfully![/]");
         }
 
         private static async Task GetAndStrip(BeatSaberVersion version, string downloadPath, string versionPath)
