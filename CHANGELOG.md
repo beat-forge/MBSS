@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/beat-forge/MBSS/compare/v1.3.0...v1.3.1) (2024-07-16)
+
+
+### Bug Fixes
+
+* Escape square brackets in console output to prevent formatting issues ([0d8635e](https://github.com/beat-forge/MBSS/commit/0d8635ef865cd0c39a2bd7a9b2d77f79f5d01f3b))
+
 ## [1.3.0](https://github.com/beat-forge/MBSS/compare/v1.2.3...v1.3.0) (2024-07-16)
 
 
