@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
+using System.Text;
 using LibGit2Sharp;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -26,6 +27,7 @@ namespace MBSS
         private const string VersionsFile = "versions.json";
         private const string DepotDownloaderExe = "bin/DepotDownloader.exe";
         private const string GenericStripperExe = "bin/GenericStripper.exe";
+        private const string VersionsMdFile = "versions.md";
         private static readonly string[] RequiredEnvs = { "STEAM_USERNAME", "STEAM_PASSWORD", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GITHUB_TOKEN" };
 
         public static async Task Main(string[] args)
@@ -59,17 +61,18 @@ namespace MBSS
                 var versionPath = Path.Combine(Directory.GetCurrentDirectory(), "data");
 
                 var branchName = $"versions/{version.Version}";
-                if (Directory.Exists(versionPath) &&
-                    File.ReadAllText(Path.Combine(versionPath, "version.txt")).Trim() == version.Version)
+                if (Repository.IsValid(Directory.GetCurrentDirectory()) && new Repository(Directory.GetCurrentDirectory()).Branches[branchName] != null)
                 {
                     AnsiConsole.MarkupLine($"[yellow]Version {version.Version} already exists in branch {branchName}, skipping...[/]");
                     continue;
                 }
 
-                await GetAndStrip(version, downloadPath, versionPath);
+                AnsiConsole.MarkupLine($"[green]Stripping {version.Version}[/]");
+                await GetAndStrip(version, downloadPath);
                 AnsiConsole.MarkupLine($"[green]Version {version.Version} stripped![/]");
 
-                await CommitAndPushVersion(version, branchName, versionPath);
+                await UpdateAndCommitVersionsMd(version);
+                CommitAndPushVersion(version, branchName);
             }
         }
 
@@ -156,11 +159,88 @@ namespace MBSS
             if (!dir.Exists) dir.Create();
         }
 
+        private static async Task GetAndStrip(BeatSaberVersion version, string downloadPath)
+        {
+            string depotDownloaderPath = Path.GetFullPath(DepotDownloaderExe);
+            string genericStripperPath = Path.GetFullPath(GenericStripperExe);
+            string absoluteDownloadPath = Path.GetFullPath(downloadPath);
+            string absoluteVersionPath = Path.GetFullPath("data");
+
+            await RunProcess(depotDownloaderPath, $"-app 620980 -depot 620981 -manifest \"{version.Manifest}\" -dir {absoluteDownloadPath} -remember-password -username \"{Environment.GetEnvironmentVariable("STEAM_USERNAME")}\" -password \"{Environment.GetEnvironmentVariable("STEAM_PASSWORD")}\"");
+            await RunProcess(genericStripperPath, $"strip -m beatsaber -p \"{absoluteDownloadPath}\" -o \"{absoluteVersionPath}\"");
+
+            if (Directory.Exists(absoluteDownloadPath)) Directory.Delete(absoluteDownloadPath, true);
+
+            await File.WriteAllTextAsync(Path.Combine(absoluteVersionPath, "version.txt"), version.Version);
+        }
+
+        public static async Task RunProcess(string fileName, string arguments)
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    Arguments = arguments,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            var outputBuilder = new StringBuilder();
+            var errorBuilder = new StringBuilder();
+
+            process.OutputDataReceived += (sender, args) =>
+            {
+                if (args.Data != null)
+                {
+                    outputBuilder.AppendLine(args.Data);
+                    AnsiConsole.MarkupLine($"[yellow]{args.Data}[/]");
+                }
+            };
+            process.ErrorDataReceived += (sender, args) =>
+            {
+                if (args.Data != null)
+                {
+                    errorBuilder.AppendLine(args.Data);
+                    AnsiConsole.MarkupLine($"[red]{args.Data}[/]");
+                }
+            };
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                var errorOutput = errorBuilder.ToString();
+                AnsiConsole.MarkupLine($"[red]Process {fileName} failed with exit code {process.ExitCode}[/]");
+                AnsiConsole.MarkupLine($"[red]Error Output: {errorOutput}[/]");
+                throw new Exception($"Process {fileName} failed with exit code {process.ExitCode}. Error Output: {errorOutput}");
+            }
+
+            AnsiConsole.MarkupLine($"[green]Process {fileName} completed successfully.[/]");
+        }
+
         private static async Task DownloadAndExtract(HttpClient client, string url, string outputPath)
         {
             AnsiConsole.MarkupLine($"[yellow]{Path.GetFileName(outputPath)} does not exist, downloading...[/]");
 
-            var res = await client.GetAsync(url);
+            HttpResponseMessage res;
+            try
+            {
+                res = await client.GetAsync(url);
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]Error downloading {Path.GetFileName(outputPath)}: {ex.Message}[/]");
+                throw;
+            }
+
             if (res.StatusCode != HttpStatusCode.OK)
             {
                 AnsiConsole.MarkupLine("[red]Failed to get the latest release![/]");
@@ -181,12 +261,6 @@ namespace MBSS
                 throw new Exception($"No assets found for {Path.GetFileName(outputPath)}!");
             }
 
-            AnsiConsole.MarkupLine("[yellow]Available assets:[/]");
-            foreach (var asset in assets)
-            {
-                AnsiConsole.MarkupLine($"- {asset["name"]?.ToString()}");
-            }
-
             var assetItem = assets.FirstOrDefault(x => x["name"]?.ToString().Contains("windows-x64") ?? false);
             if (assetItem == null)
             {
@@ -201,7 +275,17 @@ namespace MBSS
                 throw new Exception($"Asset URL is empty for {Path.GetFileName(outputPath)}!");
             }
 
-            var assetRes = await client.GetAsync(assetUrl);
+            HttpResponseMessage assetRes;
+            try
+            {
+                assetRes = await client.GetAsync(assetUrl);
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]Error downloading asset from {assetUrl}: {ex.Message}[/]");
+                throw;
+            }
+
             if (assetRes.StatusCode != HttpStatusCode.OK)
             {
                 AnsiConsole.MarkupLine("[red]Failed to download the asset![/]");
@@ -215,39 +299,12 @@ namespace MBSS
             AnsiConsole.MarkupLine($"[green]{Path.GetFileName(outputPath)} downloaded and extracted successfully![/]");
         }
 
-        private static async Task GetAndStrip(BeatSaberVersion version, string downloadPath, string versionPath)
-        {
-            await RunProcess(DepotDownloaderExe, $"-app 620980 -depot 620981 -manifest \"{version.Manifest}\" -dir {downloadPath} -remember-password -username \"{Environment.GetEnvironmentVariable("STEAM_USERNAME")}\" -password \"{Environment.GetEnvironmentVariable("STEAM_PASSWORD")}\"");
-            await RunProcess(GenericStripperExe, $"strip -m beatsaber -p \"{downloadPath}\" -o \"{versionPath}\"");
-
-            if (Directory.Exists(downloadPath)) Directory.Delete(downloadPath, true);
-            
-            await File.WriteAllTextAsync(Path.Combine(versionPath, "version.txt"), version.Version);
-        }
-
-        private static async Task RunProcess(string fileName, string arguments)
-        {
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = fileName,
-                    Arguments = arguments,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-
-            process.Start();
-            await process.WaitForExitAsync();
-        }
-
-        private static async Task CommitAndPushVersion(BeatSaberVersion version, string branchName, string versionPath)
+        private static void CommitAndPushVersion(BeatSaberVersion version, string branchName)
         {
             using var repo = new Repository(Directory.GetCurrentDirectory());
             var author = new Signature(Environment.GetEnvironmentVariable("GIT_AUTHOR_NAME"), Environment.GetEnvironmentVariable("GIT_AUTHOR_EMAIL"), DateTimeOffset.Now);
+
+            AnsiConsole.MarkupLine($"[yellow]Current branch: {repo.Head.FriendlyName}[/]");
 
             var branch = repo.Branches[branchName] ?? repo.CreateBranch(branchName);
             Commands.Checkout(repo, branch);
@@ -269,6 +326,43 @@ namespace MBSS
             };
 
             if (remote != null) repo.Network.Push(remote, $"refs/heads/{branchName}", options);
+        }
+
+        public static async Task UpdateAndCommitVersionsMd(BeatSaberVersion version)
+        {
+            var versionsMdPath = Path.Combine(Directory.GetCurrentDirectory(), VersionsMdFile);
+            var versionsMd = new StringBuilder();
+
+            if (File.Exists(versionsMdPath))
+            {
+                var lines = await File.ReadAllLinesAsync(versionsMdPath);
+                var versions = new List<string>();
+
+                foreach (var line in lines)
+                {
+                    if (line.StartsWith("- [v"))
+                    {
+                        var versionString = line.Split("v")[1].Split("]")[0];
+                        versions.Add(versionString);
+                    }
+                }
+
+                versions.Add(version.Version);
+                versions = versions.OrderByDescending(x => x).ToList();
+
+                versionsMd.AppendLine("# Versions");
+                foreach (var v in versions)
+                {
+                    versionsMd.AppendLine($"- [v{v}](https://github.com/beat-forge/beatsaber-stripped/tree/versions/{v})");
+                }
+            }
+            else
+            {
+                versionsMd.AppendLine("# Versions");
+                versionsMd.AppendLine($"- [v{version.Version}](https://github.com/beat-forge/beatsaber-stripped/tree/versions/{version.Version})");
+            }
+
+            await File.WriteAllTextAsync(versionsMdPath, versionsMd.ToString());
         }
 
         private static async Task SetupDotEnv()
