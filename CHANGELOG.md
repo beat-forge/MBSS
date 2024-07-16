@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.5](https://github.com/beat-forge/MBSS/compare/v1.3.4...v1.3.5) (2024-07-16)
+
+
+### Bug Fixes
+
+* build ([b9ad11f](https://github.com/beat-forge/MBSS/commit/b9ad11f6bf87c0df59c29922488b49d3e7265bcc))
+
 ## [1.3.4](https://github.com/beat-forge/MBSS/compare/v1.3.3...v1.3.4) (2024-07-16)
 
 
