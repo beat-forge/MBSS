@@ -56,25 +56,29 @@ namespace MBSS
             {
                 AnsiConsole.MarkupLine($"[yellow]Processing version {version.Version}...[/]");
 
-                var branchName = $"v{version.Version}";
+                var branchName = $"version/v{version.Version}";
                 if (Repository.IsValid(Directory.GetCurrentDirectory()) && new Repository(Directory.GetCurrentDirectory()).Branches[branchName] != null && !args.Contains("--force"))
                 {
                     AnsiConsole.MarkupLine($"[yellow]Branch {branchName} already exists, skipping...[/]");
                     continue;
                 }
 
-                var downloadPath = Path.Combine("downloads", version.Version);
-                DeleteDirectoryIfExists(downloadPath);
+                var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+                Directory.CreateDirectory(tempDir);
 
                 try
                 {
-                    await GetAndStrip(version, downloadPath);
-                    CommitAndPushVersion(version, branchName);
+                    await GetAndStrip(version, tempDir);
+                    CommitAndPushVersion(version, branchName, tempDir);
                 }
                 catch (Exception ex)
                 {
                     AnsiConsole.MarkupLine($"[red]Failed to process version {version.Version}: {ex.Message}[/]");
                     continue;
+                }
+                finally
+                {
+                    Directory.Delete(tempDir, true);
                 }
 
                 AnsiConsole.MarkupLine($"[green]Version {version.Version} processed successfully![/]");
@@ -91,11 +95,6 @@ namespace MBSS
             AnsiConsole.MarkupLine("[green]Ensure you are running MBSS inside the root of your desired versions repository![/]");
         }
 
-        private static void DeleteDirectoryIfExists(string path)
-        {
-            if (Directory.Exists(path)) Directory.Delete(path, true);
-        }
-
         private static async Task<bool> LoadAndValidateVersions(string versionsFilePath)
         {
             if (!File.Exists(versionsFilePath))
@@ -105,24 +104,20 @@ namespace MBSS
             }
 
             var versions = JsonConvert.DeserializeObject<List<BeatSaberVersion>>(await File.ReadAllTextAsync(versionsFilePath));
-            if (versions == null)
-            {
-                AnsiConsole.MarkupLine("[red]Failed to parse versions.json![/]");
-                return false;
-            }
+            if (versions != null) return true;
+            
+            AnsiConsole.MarkupLine("[red]Failed to parse versions.json![/]");
+            return false;
 
-            return true;
         }
 
         private static bool ValidateEnvironmentVariables(string[] envs)
         {
             foreach (var env in envs)
             {
-                if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(env)))
-                {
-                    AnsiConsole.MarkupLine($"[red]Environment variable {env} is not set![/]");
-                    return false;
-                }
+                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(env))) continue;
+                AnsiConsole.MarkupLine($"[red]Environment variable {env} is not set![/]");
+                return false;
             }
             return true;
         }
@@ -135,43 +130,29 @@ namespace MBSS
                 return false;
             }
 
-            if (!File.Exists(".gitignore"))
-            {
-                AnsiConsole.MarkupLine("[red]Git repository does not have a .gitignore, aborting.[/]");
-                AnsiConsole.MarkupLine("[red]It is absolutely necessary to ignore the bin/ and downloads/ directories![/]");
-                return false;
-            }
-
             if (!File.Exists(DepotDownloaderExe)) await DownloadAndExtract(client, DepotDownloaderUrl, DepotDownloaderExe);
             if (!File.Exists(GenericStripperExe)) await DownloadAndExtract(client, GenericStripperUrl, GenericStripperExe);
-
-            EnsureDirectoryExists("downloads");
 
             return true;
         }
 
-        private static void EnsureDirectoryExists(string path)
+        private static async Task GetAndStrip(BeatSaberVersion version, string tempDir)
         {
-            var dir = new DirectoryInfo(path);
-            if (!dir.Exists) dir.Create();
+            var depotDownloaderPath = Path.GetFullPath(DepotDownloaderExe);
+            var genericStripperPath = Path.GetFullPath(GenericStripperExe);
+            var downloadPath = Path.Combine(tempDir, "download");
+            var strippedPath = Path.Combine(tempDir, "stripped");
+
+            Directory.CreateDirectory(downloadPath);
+            Directory.CreateDirectory(strippedPath);
+
+            await RunProcess(depotDownloaderPath, $"-app 620980 -depot 620981 -manifest \"{version.Manifest}\" -dir \"{downloadPath}\" -remember-password -username \"{Environment.GetEnvironmentVariable("STEAM_USERNAME")}\" -password \"{Environment.GetEnvironmentVariable("STEAM_PASSWORD")}\"");
+            await RunProcess(genericStripperPath, $"strip -m beatsaber -p \"{downloadPath}\" -o \"{strippedPath}\"");
+
+            await File.WriteAllTextAsync(Path.Combine(strippedPath, "version.txt"), version.Version);
         }
 
-        private static async Task GetAndStrip(BeatSaberVersion version, string downloadPath)
-        {
-            string depotDownloaderPath = Path.GetFullPath(DepotDownloaderExe);
-            string genericStripperPath = Path.GetFullPath(GenericStripperExe);
-            string absoluteDownloadPath = Path.GetFullPath(downloadPath);
-            string absoluteVersionPath = Path.GetFullPath("data");
-
-            await RunProcess(depotDownloaderPath, $"-app 620980 -depot 620981 -manifest \"{version.Manifest}\" -dir {absoluteDownloadPath} -remember-password -username \"{Environment.GetEnvironmentVariable("STEAM_USERNAME")}\" -password \"{Environment.GetEnvironmentVariable("STEAM_PASSWORD")}\"");
-            await RunProcess(genericStripperPath, $"strip -m beatsaber -p \"{absoluteDownloadPath}\" -o \"{absoluteVersionPath}\"");
-
-            if (Directory.Exists(absoluteDownloadPath)) Directory.Delete(absoluteDownloadPath, true);
-
-            await File.WriteAllTextAsync(Path.Combine(absoluteVersionPath, "version.txt"), version.Version);
-        }
-
-        public static async Task RunProcess(string fileName, string arguments)
+        private static async Task RunProcess(string fileName, string arguments)
         {
             var process = new Process
             {
@@ -189,23 +170,22 @@ namespace MBSS
             var outputBuilder = new StringBuilder();
             var errorBuilder = new StringBuilder();
 
-            process.OutputDataReceived += (sender, args) =>
+            process.OutputDataReceived += (_, args) =>
             {
-                if (args.Data != null)
-                {
-                    outputBuilder.AppendLine(args.Data);
-                    var escapedOutput = args.Data.Replace("[", "[[").Replace("]", "]]");
-                    AnsiConsole.MarkupLine($"[yellow]{escapedOutput}[/]");
-                }
+                if (args.Data == null) return;
+                
+                outputBuilder.AppendLine(args.Data);
+                var escapedOutput = args.Data.Replace("[", "[[").Replace("]", "]]");
+                AnsiConsole.MarkupLine($"[yellow]{escapedOutput}[/]");
             };
-            process.ErrorDataReceived += (sender, args) =>
+            
+            process.ErrorDataReceived += (_, args) =>
             {
-                if (args.Data != null)
-                {
-                    errorBuilder.AppendLine(args.Data);
-                    var escapedError = args.Data.Replace("[", "[[").Replace("]", "]]");
-                    AnsiConsole.MarkupLine($"[red]{escapedError}[/]");
-                }
+                if (args.Data == null) return;
+                
+                errorBuilder.AppendLine(args.Data);
+                var escapedError = args.Data.Replace("[", "[[").Replace("]", "]]");
+                AnsiConsole.MarkupLine($"[red]{escapedError}[/]");
             };
 
             process.Start();
@@ -224,6 +204,7 @@ namespace MBSS
 
             AnsiConsole.MarkupLine($"[green]Process {fileName} completed successfully.[/]");
         }
+
         private static async Task DownloadAndExtract(HttpClient client, string url, string outputPath)
         {
             AnsiConsole.MarkupLine($"[yellow]{Path.GetFileName(outputPath)} does not exist, downloading...[/]");
@@ -252,8 +233,7 @@ namespace MBSS
                 throw new Exception($"Failed to parse {Path.GetFileName(outputPath)} release!");
             }
 
-            var assets = latestRelease["assets"] as JArray;
-            if (assets == null || !assets.Any())
+            if (latestRelease["assets"] is not JArray assets || !assets.Any())
             {
                 AnsiConsole.MarkupLine("[red]No assets found in the release![/]");
                 throw new Exception($"No assets found for {Path.GetFileName(outputPath)}!");
@@ -293,7 +273,7 @@ namespace MBSS
             await using var assetStream = await assetRes.Content.ReadAsStreamAsync();
             using var archive = new ZipArchive(assetStream);
 
-            string extractPath = Path.Combine(Directory.GetCurrentDirectory(), "bin");
+            var extractPath = Path.Combine(Directory.GetCurrentDirectory(), "bin");
 
             if (!Directory.Exists(extractPath)) Directory.CreateDirectory(extractPath);
             archive.ExtractToDirectory(extractPath, true);
@@ -301,7 +281,7 @@ namespace MBSS
             AnsiConsole.MarkupLine($"[green]{Path.GetFileName(outputPath)} downloaded and extracted successfully![/]");
         }
 
-        private static void CommitAndPushVersion(BeatSaberVersion version, string branchName)
+        private static void CommitAndPushVersion(BeatSaberVersion version, string branchName, string tempDir)
         {
             using var repo = new Repository(Directory.GetCurrentDirectory());
 
@@ -315,6 +295,21 @@ namespace MBSS
             }
 
             Commands.Checkout(repo, branch);
+
+            foreach (var file in repo.Index)
+            {
+                File.Delete(file.Path);
+            }
+
+            var strippedPath = Path.Combine(tempDir, "stripped");
+            foreach (var file in Directory.GetFiles(strippedPath, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(strippedPath, file);
+                var destPath = Path.Combine(repo.Info.WorkingDirectory, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(destPath) ?? throw new InvalidOperationException());
+                File.Copy(file, destPath, true);
+            }
+
             Commands.Stage(repo, "*");
             repo.Commit($"chore: strip v{version.Version}", signature, signature);
 
