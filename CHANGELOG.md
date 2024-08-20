@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.7](https://github.com/beat-forge/MBSS/compare/v1.3.6...v1.3.7) (2024-08-20)
+
+
+### Bug Fixes
+
+* clean up and try to fix mbss ([f9ce5cb](https://github.com/beat-forge/MBSS/commit/f9ce5cb38b878bd7b0e7e77b74f79bc209d7f6ad))
+
 ## [1.3.6](https://github.com/beat-forge/MBSS/compare/v1.3.5...v1.3.6) (2024-07-16)
 
 
