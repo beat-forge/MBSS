@@ -292,3 +292,21 @@ pub async fn strip_version(download_path: &Path, generic_stripper: &Path) -> Res
 
     Ok(stripped_path)
 }
+
+pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+    for entry in src.read_dir().context("Failed to read source directory")? {
+        let entry = entry.context("Failed to read entry")?;
+        let entry_path = entry.path();
+        let entry_name = entry.file_name();
+        let dst_path = dst.join(entry_name);
+
+        if entry_path.is_dir() {
+            fs::create_dir_all(&dst_path).context("Failed to create directory")?;
+            copy_dir_all(&entry_path, &dst_path)?;
+        } else {
+            fs::copy(&entry_path, &dst_path).context("Failed to copy file")?;
+        }
+    }
+
+    Ok(())
+}
