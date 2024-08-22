@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.86"
 dotenv = "0.15.0"
+dunce = "1.0.5"
 git2 = "0.19.0"
 reqwest = { version = "0.12.7", features = ["json"] }
 semver = { version = "1.0.23", features = ["serde"] }

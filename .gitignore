@@ -1,5 +1,7 @@
 target/
 downloads/
 stripped/
+versions/
+/versions.json
 bin/
 .env
