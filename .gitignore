@@ -1,0 +1,5 @@
+target/
+downloads/
+stripped/
+bin/
+.env
