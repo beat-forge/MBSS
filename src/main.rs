@@ -2,15 +2,15 @@ mod structs;
 mod utils;
 
 use anyhow::{Context, Result};
-use git2::{build::CheckoutBuilder, BranchType, Repository, Signature};
+use git2::{build::CheckoutBuilder, BranchType, IndexAddOption, Repository, Signature};
 use semver::Version;
-use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
+use std::{collections::HashSet, path::PathBuf};
 use structs::VersionsFile;
 use tracing::{debug, error, info, instrument, warn};
 use tracing_subscriber::EnvFilter;
-use utils::{download_tools, download_version, strip_version, ToolPaths};
+use utils::{copy_dir_all, download_tools, download_version, strip_version, ToolPaths};
 
 #[tokio::main]
 #[instrument]
@@ -19,7 +19,12 @@ async fn main() -> Result<()> {
     info!("Starting MBSS");
 
     let tools = download_tools().await.context("Failed to download tools")?;
-    let repo = initialize_repository(Path::new("versions"))?;
+
+    let repo_path = std::env::var("REPO_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("./versions"));
+
+    let repo = initialize_repository(&repo_path)?;
     info!("Repository initialized at {:?}", repo.path());
 
     if let Ok(_) = repo.find_branch("main", BranchType::Local) {
@@ -117,15 +122,9 @@ fn create_main_branch(repo: &Repository) -> Result<()> {
     let tree_id = {
         let mut index = repo.index()?;
         let assets_path = Path::new("./assets");
-
-        // Copy versions.json and README.md from assets folder
-        for file in &["versions.json", "README.md"] {
-            let src_path = assets_path.join(file);
-            let dest_path = repo.workdir().unwrap().join(file);
-            fs::copy(&src_path, &dest_path)?;
-            index.add_path(Path::new(file))?;
-        }
-
+        let dest_path = repo.workdir().unwrap();
+        copy_dir_all(assets_path, dest_path, &[])?;
+        index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
         index.write_tree()?
     };
 
