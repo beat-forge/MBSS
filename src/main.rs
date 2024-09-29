@@ -243,11 +243,24 @@ async fn process_version(
         version.version, download_path
     );
 
-    let stripped_path = strip_version(&download_path, &tools.generic_stripper).await?;
-    info!(
-        "Version {} stripped to {:?}",
-        version.version, stripped_path
-    );
+    #[cfg(feature = "stripping")]
+    let processed_path = {
+        let stripped_path = strip_version(&download_path, &tools.generic_stripper).await?;
+        info!(
+            "Version {} stripped to {:?}",
+            version.version, stripped_path
+        );
+        stripped_path
+    };
+
+    #[cfg(not(feature = "stripping"))]
+    let processed_path = {
+        info!(
+            "Stripping is disabled. Using downloaded path {:?} for version {}",
+            download_path, version.version
+        );
+        download_path
+    };
 
     // Clear the working directory
     let workdir = repo.workdir().context("Failed to get workdir")?;
@@ -261,8 +274,7 @@ async fn process_version(
         }
     }
 
-    // Copy new files from the stripped path
-    copy_files_to_repo(repo, &stripped_path)?;
+    copy_files_to_repo(repo, &processed_path)?;
     write_version_file(workdir, &version.version.to_string())?;
 
     // Stage all changes
