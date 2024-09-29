@@ -1,0 +1,24 @@
+# Dependabot configuration file
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Configuration for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Optional: Specify labels for pull requests
+    labels:
+      - "dependencies"
+      - "actions"
+
+  # Configuration for Rust
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Optional: Specify labels for pull requests
+    labels:
+      - "dependencies"
+      - "rust"
