@@ -3,14 +3,18 @@ mod utils;
 
 use anyhow::{Context, Result};
 use git2::{build::CheckoutBuilder, BranchType, IndexAddOption, Repository, Signature};
+use include_dir::{include_dir, Dir};
 use semver::Version;
 use std::fs;
 use std::path::Path;
 use std::{collections::HashSet, path::PathBuf};
+use tempfile::TempDir;
 use structs::VersionsFile;
 use tracing::{debug, error, info, instrument, warn};
 use tracing_subscriber::EnvFilter;
 use utils::{copy_dir_all, download_tools, download_version, strip_version, ToolPaths};
+
+static ASSETS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/assets");
 
 #[tokio::main]
 #[instrument]
@@ -106,11 +110,12 @@ fn initialize_environment() -> Result<()> {
 
 #[instrument(skip(repo_path))]
 fn initialize_repository(repo_path: &Path) -> Result<Repository> {
-    let repo = if let Ok(repo) = Repository::open(repo_path) {
+    let repo = if repo_path.exists() && repo_path.join(".git").exists() {
         info!("Opened existing repository at {:?}", repo_path);
-        repo
+        Repository::open(repo_path)?
     } else {
         info!("Initializing new git repository at {:?}", repo_path);
+        std::fs::create_dir_all(repo_path)?;
         Repository::init(repo_path)?
     };
     Ok(repo)
@@ -121,9 +126,15 @@ fn create_main_branch(repo: &Repository) -> Result<()> {
     let signature = Signature::now("MBSS", "mbss@beatforge.net")?;
     let tree_id = {
         let mut index = repo.index()?;
-        let assets_path = Path::new("./assets");
-        let dest_path = repo.workdir().unwrap();
-        copy_dir_all(assets_path, dest_path, &[])?;
+        let temp_dir = TempDir::new()?;
+        let dest_path = temp_dir.path();
+
+        // Extract bundled assets to the temporary directory
+        ASSETS.extract(dest_path)?;
+
+        let repo_workdir = repo.workdir().context("Failed to get workdir")?;
+        copy_dir_all(dest_path, repo_workdir, &[])?;
+
         index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
         index.write_tree()?
     };
