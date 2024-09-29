@@ -24,7 +24,7 @@ jobs:
             asset_name: mbss-macos
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -50,7 +50,7 @@ jobs:
         mv target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}-nostrip
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.asset_name }}
         path: |
@@ -63,14 +63,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4
 
     - name: Get the version
       id: get_version
       run: echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}
 
     - name: Update Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_version.outputs.VERSION }}
         name: Release ${{ steps.get_version.outputs.VERSION }}
@@ -87,7 +87,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Update Latest Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: latest
         name: Latest Release
