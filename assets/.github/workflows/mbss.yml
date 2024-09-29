@@ -33,7 +33,8 @@ jobs:
         shell: pwsh
 
       - name: Run MBSS
-        run: C:\mbss\mbss.exe
+        run: .\mbss.exe
+        working-directory: C:\mbss
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STEAM_USERNAME: ${{ secrets.STEAM_USERNAME }}
