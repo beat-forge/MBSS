@@ -21,15 +21,22 @@ jobs:
           git config --global user.name "MBSS"
           git config --global user.email "mbss@beatforge.net"
 
+      - name: Create MBSS directory at root
+        run: mkdir C:\mbss
+        shell: pwsh
+
       - name: Download latest MBSS release
         run: |
           $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/beat-forge/mbss/releases/latest"
           $downloadUrl = ($latestRelease.assets | Where-Object { $_.name -eq "mbss.exe" }).browser_download_url
-          Invoke-WebRequest -Uri $downloadUrl -OutFile mbss.exe
+          Invoke-WebRequest -Uri $downloadUrl -OutFile C:\mbss\mbss.exe
         shell: pwsh
 
       - name: Run MBSS
-        run: .\mbss.exe
+        run: C:\mbss\mbss.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MBSS_REPO_PATH: ${{ github.workspace }}
+          STEAM_USERNAME: ${{ secrets.STEAM_USERNAME }}
+          STEAM_PASSWORD: ${{ secrets.STEAM_PASSWORD }}
+          REPO_PATH: ${{ github.workspace }}
+          RUST_LOG: debug
