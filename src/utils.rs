@@ -1,10 +1,9 @@
 use anyhow::{Context, Result};
-use dunce::canonicalize;
 use reqwest::Client;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 use zip::ZipArchive;
 
 use crate::structs;
@@ -229,7 +228,13 @@ pub async fn download_version(
     let download_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("downloads");
     fs::create_dir_all(&download_dir).context("Failed to create downloads directory")?;
 
-    let download_path = download_dir.join(&version.version.to_string());
+    let download_path = download_dir.join(version.version.to_string());
+
+    if download_path.exists() {
+        info!("Version {} already downloaded", version.version);
+        return Ok(download_path);
+    }
+
     info!("Downloading version {}", version.version);
     let status = std::process::Command::new(depot_downloader)
         .arg("-username")
@@ -263,10 +268,15 @@ pub async fn strip_version(download_path: &Path, generic_stripper: &Path) -> Res
     fs::create_dir_all(&stripped_dir).context("Failed to create stripped directory")?;
 
     let stripped_path = stripped_dir.join(download_path.file_name().unwrap());
+
+    if stripped_path.exists() {
+        info!("Version {:?} already stripped", download_path.file_name().unwrap());
+        return Ok(stripped_path);
+    }
+
     info!("Stripping version {:?}", download_path.file_name().unwrap());
-    
-    // Ensure the stripped directory exists
-    fs::create_dir_all(&stripped_path.parent().unwrap())
+
+    fs::create_dir_all(stripped_path.parent().unwrap())
         .context("Failed to create parent directory for stripped path")?;
 
     let download_path_str = download_path.to_str().context("Invalid download path")?;
@@ -293,20 +303,28 @@ pub async fn strip_version(download_path: &Path, generic_stripper: &Path) -> Res
     Ok(stripped_path)
 }
 
-pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
-    for entry in src.read_dir().context("Failed to read source directory")? {
-        let entry = entry.context("Failed to read entry")?;
-        let entry_path = entry.path();
-        let entry_name = entry.file_name();
-        let dst_path = dst.join(entry_name);
+pub fn copy_dir_all(
+    src: impl AsRef<Path>,
+    dst: impl AsRef<Path>,
+    exclude: &[&str],
+) -> std::io::Result<()> {
+    let src = src.as_ref();
+    let dst = dst.as_ref();
 
-        if entry_path.is_dir() {
-            fs::create_dir_all(&dst_path).context("Failed to create directory")?;
-            copy_dir_all(&entry_path, &dst_path)?;
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        if exclude.contains(&file_name.to_str().unwrap_or_default()) {
+            continue;
+        }
+        let dst_path = dst.join(&file_name);
+        if path.is_dir() {
+            copy_dir_all(&path, &dst_path, exclude)?;
         } else {
-            fs::copy(&entry_path, &dst_path).context("Failed to copy file")?;
+            fs::copy(&path, &dst_path)?;
         }
     }
-
     Ok(())
 }
