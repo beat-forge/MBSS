@@ -19,13 +19,13 @@ jobs:
             asset_name: mbss-windows
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
         override: true
-        
+
     - name: Cache Rust dependencies
       uses: actions/cache@v3
       with:
@@ -36,24 +36,33 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-
-          
+
     - name: Build (default features)
       uses: actions-rs/cargo@v1
       with:
         command: build
         args: --release
-        
+
     - name: Build (no default features)
       uses: actions-rs/cargo@v1
       with:
         command: build
         args: --release --no-default-features
-        
+
+    - name: List contents of release directory
+      run: ls -R target/release
+      
     - name: Rename artifacts
       run: |
-        mv target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
-        mv target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}-nostrip
-        
+        if [ -f "target/release/${{ matrix.artifact_name }}" ]; then
+          mv target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
+          cp target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}-nostrip
+        else
+          echo "Error: ${{ matrix.artifact_name }} not found in target/release"
+          exit 1
+        fi
+      shell: bash
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -61,7 +70,7 @@ jobs:
         path: |
           ${{ matrix.asset_name }}
           ${{ matrix.asset_name }}-nostrip
-          
+
   release:
     name: Update Release
     needs: build
@@ -69,11 +78,11 @@ jobs:
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
-      
+
     - name: Get the version
       id: get_version
       run: echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}
-      
+
     - name: Update Release
       uses: softprops/action-gh-release@v2
       with:
@@ -82,13 +91,13 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          mbss-linux/mbss
-          mbss-linux/mbss-nostrip
-          mbss-windows/mbss.exe
-          mbss-windows/mbss-nostrip.exe
+          mbss-linux/mbss-linux
+          mbss-linux/mbss-linux-nostrip
+          mbss-windows/mbss-windows.exe
+          mbss-windows/mbss-windows-nostrip.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        
+
     - name: Update Latest Release
       uses: softprops/action-gh-release@v2
       with:
@@ -97,9 +106,10 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          mbss-linux/mbss
-          mbss-linux/mbss-nostrip
-          mbss-windows/mbss.exe
-          mbss-windows/mbss-nostrip.exe
+          mbss-linux/mbss-linux
+          mbss-linux/mbss-linux-nostrip
+          mbss-windows/mbss-windows.exe
+          mbss-windows/mbss-windows-nostrip.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
