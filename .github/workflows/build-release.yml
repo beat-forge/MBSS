@@ -5,18 +5,8 @@ on:
       - main
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            artifact_name: mbss
-            asset_name: mbss-linux
-          - os: windows-latest
-            artifact_name: mbss.exe
-            asset_name: mbss-windows
+    name: Build on Windows
+    runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
 
@@ -50,26 +40,22 @@ jobs:
         args: --release --no-default-features
 
     - name: List contents of release directory
-      run: ls -R target/release
-      
+      run: dir target\release
+      shell: cmd
+
     - name: Rename artifacts
       run: |
-        if [ -f "target/release/${{ matrix.artifact_name }}" ]; then
-          mv target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
-          cp target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}-nostrip
-        else
-          echo "Error: ${{ matrix.artifact_name }} not found in target/release"
-          exit 1
-        fi
-      shell: bash
+        move target\release\mbss.exe mbss-windows.exe
+        copy target\release\mbss.exe mbss-windows-nostrip.exe
+      shell: cmd
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.asset_name }}
+        name: mbss-windows
         path: |
-          ${{ matrix.asset_name }}
-          ${{ matrix.asset_name }}-nostrip
+          mbss-windows.exe
+          mbss-windows-nostrip.exe
 
   release:
     name: Update Release
@@ -91,8 +77,6 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          mbss-linux/mbss-linux
-          mbss-linux/mbss-linux-nostrip
           mbss-windows/mbss-windows.exe
           mbss-windows/mbss-windows-nostrip.exe
       env:
@@ -106,8 +90,6 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          mbss-linux/mbss-linux
-          mbss-linux/mbss-linux-nostrip
           mbss-windows/mbss-windows.exe
           mbss-windows/mbss-windows-nostrip.exe
       env:
