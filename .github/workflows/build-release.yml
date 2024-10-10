@@ -26,6 +26,17 @@ jobs:
         toolchain: stable
         override: true
         
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+          
     - name: Build (default features)
       uses: actions-rs/cargo@v1
       with:
@@ -42,6 +53,7 @@ jobs:
       run: |
         mv target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
         mv target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}-nostrip
+        
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
