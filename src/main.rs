@@ -166,29 +166,46 @@ async fn process_versions(
     let mut latest_commit_id = None;
     let mut previous_version: Option<&Version> = None;
 
+    // Fetch all remote branches
+    fetch_remote_branches(repo)?;
+
     for version in versions_file.versions.iter() {
-        if !existing_versions.contains(&version.version) {
-            info!("Processing new version: {}", version.version);
-            let commit_id = process_version(repo, version, tools, previous_version).await?;
-            latest_commit_id = Some(commit_id);
-        } else {
-            info!("Skipping version {} as it already exists", version.version);
-            let branch_name = format!("version/{}", version.version);
-            let branch = repo.find_branch(&branch_name, BranchType::Local)?;
-            let commit = branch.get().peel_to_commit()?;
-            latest_commit_id = Some(commit.id());
+        let branch_name = format!("version/{}", version.version);
+
+        if existing_versions.contains(&version.version) {
+            info!("Version {} already exists locally", version.version);
+            if let Ok(branch) = repo.find_branch(&branch_name, BranchType::Local) {
+                let commit = branch.get().peel_to_commit()?;
+                latest_commit_id = Some(commit.id());
+                previous_version = Some(&version.version);
+                continue;
+            }
         }
+
+        // Check if the branch exists on the remote
+        if branch_exists_on_remote(repo, &branch_name)? {
+            info!(
+                "Version {} exists on remote, updating local",
+                version.version
+            );
+            update_local_branch(repo, &branch_name)?;
+            if let Ok(branch) = repo.find_branch(&branch_name, BranchType::Local) {
+                let commit = branch.get().peel_to_commit()?;
+                latest_commit_id = Some(commit.id());
+                previous_version = Some(&version.version);
+                continue;
+            }
+        }
+
+        info!("Processing new version: {}", version.version);
+        let commit_id = process_version(repo, version, tools, previous_version).await?;
+        latest_commit_id = Some(commit_id);
         previous_version = Some(&version.version);
     }
 
     // Update versions/latest branch
     if let Some(commit_id) = latest_commit_id {
-        let commit = repo.find_commit(commit_id)?;
-        if let Ok(mut branch) = repo.find_branch("versions/latest", BranchType::Local) {
-            branch.delete()?;
-        }
-        repo.branch("versions/latest", &commit, true)?;
-        push_to_remote(repo, "versions/latest")?;
+        update_latest_branch(repo, commit_id)?;
     }
 
     Ok(())
@@ -211,23 +228,35 @@ async fn process_version(
     }
 
     let download_path = download_version(version, &tools.depot_downloader).await?;
-    info!("Version {} downloaded to {:?}", version.version, download_path);
+    info!(
+        "Version {} downloaded to {:?}",
+        version.version, download_path
+    );
 
     #[cfg(feature = "stripping")]
     let processed_path = {
         let stripped_path = strip_version(&download_path, &tools.generic_stripper).await?;
-        info!("Version {} stripped to {:?}", version.version, stripped_path);
+        info!(
+            "Version {} stripped to {:?}",
+            version.version, stripped_path
+        );
         stripped_path
     };
 
     #[cfg(not(feature = "stripping"))]
     let processed_path = {
-        info!("Stripping is disabled. Using downloaded path {:?} for version {}", download_path, version.version);
+        info!(
+            "Stripping is disabled. Using downloaded path {:?} for version {}",
+            download_path, version.version
+        );
         download_path
     };
 
     // Clear the working directory
-    let workdir = repo.workdir().context("Failed to get workdir")?.to_path_buf();
+    let workdir = repo
+        .workdir()
+        .context("Failed to get workdir")?
+        .to_path_buf();
     clear_working_directory(&workdir).await?;
 
     // Copy files and create version.txt
@@ -260,14 +289,7 @@ async fn process_version(
         )?
     } else {
         // For the first version, create a commit without a parent
-        repo.commit(
-            None,
-            &signature,
-            &signature,
-            &commit_message,
-            &tree,
-            &[],
-        )?
+        repo.commit(None, &signature, &signature, &commit_message, &tree, &[])?
     };
 
     // Create or update the branch to point to the new commit
@@ -279,7 +301,10 @@ async fn process_version(
 
     push_to_remote(repo, &branch_name)?;
 
-    info!("Successfully processed and saved version {}", version.version);
+    info!(
+        "Successfully processed and saved version {}",
+        version.version
+    );
 
     Ok(commit_id)
 }
@@ -380,5 +405,53 @@ fn push_to_remote(repo: &Repository, branch_name: &str) -> Result<()> {
     } else {
         info!("No remote origin found, skipping push");
     }
+    Ok(())
+}
+
+fn fetch_remote_branches(repo: &Repository) -> Result<()> {
+    if let Ok(mut remote) = repo.find_remote("origin") {
+        info!("Fetching remote branches");
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.download_tags(git2::AutotagOption::All);
+        remote.fetch(&[] as &[&str], Some(&mut fetch_options), None)?;
+    }
+    Ok(())
+}
+
+fn branch_exists_on_remote(repo: &Repository, branch_name: &str) -> Result<bool> {
+    if let Ok(remote_branch) =
+        repo.find_branch(&format!("origin/{}", branch_name), BranchType::Remote)
+    {
+        Ok(remote_branch.get().target().is_some())
+    } else {
+        Ok(false)
+    }
+}
+
+fn update_local_branch(repo: &Repository, branch_name: &str) -> Result<()> {
+    let remote_branch = repo.find_branch(&format!("origin/{}", branch_name), BranchType::Remote)?;
+    let remote_commit = remote_branch.get().peel_to_commit()?;
+
+    if let Ok(local_branch) = repo.find_branch(branch_name, BranchType::Local) {
+        local_branch
+            .into_reference()
+            .set_target(remote_commit.id(), "Updating local branch to match remote")?;
+    } else {
+        repo.branch(branch_name, &remote_commit, false)?;
+    }
+
+    Ok(())
+}
+
+fn update_latest_branch(repo: &Repository, commit_id: git2::Oid) -> Result<()> {
+    let commit = repo.find_commit(commit_id)?;
+    if let Ok(branch) = repo.find_branch("versions/latest", BranchType::Local) {
+        branch
+            .into_reference()
+            .set_target(commit_id, "Updating latest version")?;
+    } else {
+        repo.branch("versions/latest", &commit, true)?;
+    }
+    push_to_remote(repo, "versions/latest")?;
     Ok(())
 }
