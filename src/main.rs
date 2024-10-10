@@ -5,14 +5,12 @@ use anyhow::{Context, Result};
 use git2::{build::CheckoutBuilder, BranchType, IndexAddOption, Repository, Signature};
 use include_dir::{include_dir, Dir};
 use semver::Version;
-use std::fs;
 use std::path::Path;
 use std::{collections::HashSet, path::PathBuf};
 use structs::VersionsFile;
-use tempfile::TempDir;
 use tracing::{debug, error, info, instrument, warn};
 use tracing_subscriber::EnvFilter;
-use utils::{copy_dir_all, download_tools, download_version, strip_version, ToolPaths};
+use utils::{download_tools, download_version, strip_version, ToolPaths};
 
 static ASSETS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/assets");
 
@@ -46,8 +44,6 @@ async fn main() -> Result<()> {
         versions_file.versions.len()
     );
 
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
     process_versions(&repo, &versions_file, &tools).await?;
 
     info!("MBSS completed successfully");
@@ -80,16 +76,8 @@ fn checkout_main_branch(repo: &Repository) -> Result<()> {
         .conflict_style_merge(true)
         .use_ours(true);
 
-    match repo.checkout_tree(tree.as_object(), Some(&mut checkout_options)) {
-        Ok(_) => {}
-        Err(e) => {
-            warn!("Checkout encountered issues: {}", e);
-            checkout_options.force();
-            repo.checkout_tree(tree.as_object(), Some(&mut checkout_options))
-                .context("Failed to force checkout tree")?;
-            warn!("Forced checkout completed. Some local changes may have been overwritten.");
-        }
-    }
+    repo.checkout_tree(tree.as_object(), Some(&mut checkout_options))
+        .context("Failed to checkout tree")?;
 
     repo.set_head("refs/heads/main")
         .context("Failed to set HEAD to main branch")?;
@@ -124,27 +112,21 @@ fn initialize_repository(repo_path: &Path) -> Result<Repository> {
 #[instrument(skip(repo))]
 fn create_main_branch(repo: &Repository) -> Result<()> {
     let signature = Signature::now("MBSS", "mbss@beatforge.net")?;
-    let tree_id = {
-        let mut index = repo.index()?;
-        let temp_dir = TempDir::new()?;
-        let dest_path = temp_dir.path();
 
-        // Extract bundled assets to the temporary directory
-        ASSETS.extract(dest_path)?;
+    let repo_workdir = repo.workdir().context("Failed to get workdir")?;
+    ASSETS.extract(repo_workdir)?;
 
-        let repo_workdir = repo.workdir().context("Failed to get workdir")?;
-        copy_dir_all(dest_path, repo_workdir, &[])?;
+    let mut index = repo.index()?;
+    index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
+    index.write()?;
 
-        index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
-        index.write_tree()?
-    };
-
+    let tree_id = index.write_tree()?;
     let tree = repo.find_tree(tree_id)?;
     let commit_id = repo.commit(
         Some("refs/heads/main"),
         &signature,
         &signature,
-        "feat: initial main branch",
+        "feat: initial main branch with configuration",
         &tree,
         &[],
     )?;
@@ -155,9 +137,7 @@ fn create_main_branch(repo: &Repository) -> Result<()> {
 
 #[instrument(skip(repo))]
 fn load_versions_file(repo: &Repository) -> Result<VersionsFile> {
-    let main_branch = repo.find_branch("main", git2::BranchType::Local)?;
-    let main_commit = main_branch.get().peel_to_commit()?;
-    let main_tree = main_commit.tree()?;
+    let main_tree = repo.head()?.peel_to_tree()?;
 
     let versions_json_entry = main_tree
         .get_name("versions.json")
@@ -184,31 +164,21 @@ async fn process_versions(
     info!("Found {} existing versions", existing_versions.len());
 
     let mut latest_commit_id = None;
+    let mut previous_version: Option<&Version> = None;
 
-    for (index, version) in versions_file.versions.iter().enumerate() {
-        let parent_branch_name = if index == 0 {
-            None
-        } else {
-            Some(format!(
-                "version/{}",
-                versions_file.versions[index - 1].version
-            ))
-        };
-
+    for version in versions_file.versions.iter() {
         if !existing_versions.contains(&version.version) {
             info!("Processing new version: {}", version.version);
-            let commit_id =
-                process_version(repo, version, tools, parent_branch_name.as_deref()).await?;
+            let commit_id = process_version(repo, version, tools, previous_version).await?;
             latest_commit_id = Some(commit_id);
         } else {
             info!("Skipping version {} as it already exists", version.version);
-
-            // Get the latest commit id
             let branch_name = format!("version/{}", version.version);
             let branch = repo.find_branch(&branch_name, BranchType::Local)?;
             let commit = branch.get().peel_to_commit()?;
             latest_commit_id = Some(commit.id());
         }
+        previous_version = Some(&version.version);
     }
 
     // Update versions/latest branch
@@ -224,134 +194,141 @@ async fn process_versions(
     Ok(())
 }
 
-#[instrument(skip(repo, version, tools))]
+#[instrument(skip(repo, version, tools, previous_version))]
 async fn process_version(
     repo: &Repository,
     version: &structs::Version,
     tools: &ToolPaths,
-    parent_branch_name: Option<&str>,
+    previous_version: Option<&Version>,
 ) -> Result<git2::Oid> {
     let branch_name = format!("version/{}", version.version);
     info!("Processing version: {}", version.version);
 
-    // Before deleting the branch, ensure it's not the current HEAD
-    let head = repo.head()?;
-    let current_branch = head.shorthand().unwrap_or("");
-    if current_branch == branch_name {
-        // Checkout main branch before deleting
-        checkout_main_branch(repo)?;
-    }
-
+    // Delete the branch if it already exists
     if let Ok(mut branch) = repo.find_branch(&branch_name, BranchType::Local) {
         info!("Deleting existing branch {}", branch_name);
         branch.delete()?;
     }
 
     let download_path = download_version(version, &tools.depot_downloader).await?;
-    info!(
-        "Version {} downloaded to {:?}",
-        version.version, download_path
-    );
+    info!("Version {} downloaded to {:?}", version.version, download_path);
 
     #[cfg(feature = "stripping")]
     let processed_path = {
         let stripped_path = strip_version(&download_path, &tools.generic_stripper).await?;
-        info!(
-            "Version {} stripped to {:?}",
-            version.version, stripped_path
-        );
+        info!("Version {} stripped to {:?}", version.version, stripped_path);
         stripped_path
     };
 
     #[cfg(not(feature = "stripping"))]
     let processed_path = {
-        info!(
-            "Stripping is disabled. Using downloaded path {:?} for version {}",
-            download_path, version.version
-        );
+        info!("Stripping is disabled. Using downloaded path {:?} for version {}", download_path, version.version);
         download_path
     };
 
     // Clear the working directory
-    let workdir = repo.workdir().context("Failed to get workdir")?;
-    for entry in fs::read_dir(workdir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() && path.file_name().unwrap() != ".git" {
-            fs::remove_dir_all(path)?;
-        } else if path.is_file() {
-            fs::remove_file(path)?;
-        }
-    }
+    let workdir = repo.workdir().context("Failed to get workdir")?.to_path_buf();
+    clear_working_directory(&workdir).await?;
 
-    copy_files_to_repo(repo, &processed_path)?;
-    write_version_file(workdir, &version.version.to_string())?;
+    // Copy files and create version.txt
+    copy_files_to_repo(repo, &processed_path).await?;
+    write_version_file(&workdir, &version.version.to_string()).await?;
 
     // Stage all changes
     let mut index = repo.index()?;
-    index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
+    index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
     index.write()?;
 
     let tree_id = index.write_tree()?;
     let tree = repo.find_tree(tree_id)?;
+
     let signature = Signature::now("MBSS", "mbss@beatforge.net")?;
-
-    let commit_message = format!("feat: update version to {}", version.version);
-
-    // Determine parent commits
-    let parents = if let Some(parent_branch_name) = parent_branch_name {
-        let parent_branch = repo.find_branch(parent_branch_name, BranchType::Local)?;
-        let parent_commit = parent_branch.get().peel_to_commit()?;
-        vec![parent_commit]
-    } else {
-        vec![]
-    };
+    let commit_message = format!("feat: create version {}", version.version);
 
     // Create the commit
-    let commit_id = repo.commit(
-        None,
-        &signature,
-        &signature,
-        &commit_message,
-        &tree,
-        &parents.iter().collect::<Vec<_>>(),
-    )?;
+    let commit_id = if let Some(prev_version) = previous_version {
+        let prev_branch_name = format!("version/{}", prev_version);
+        let prev_branch = repo.find_branch(&prev_branch_name, BranchType::Local)?;
+        let prev_commit = prev_branch.get().peel_to_commit()?;
+        repo.commit(
+            None,
+            &signature,
+            &signature,
+            &commit_message,
+            &tree,
+            &[&prev_commit],
+        )?
+    } else {
+        // For the first version, create a commit without a parent
+        repo.commit(
+            None,
+            &signature,
+            &signature,
+            &commit_message,
+            &tree,
+            &[],
+        )?
+    };
 
-    // Create the branch pointing to the new commit
+    // Create or update the branch to point to the new commit
     let commit = repo.find_commit(commit_id)?;
     repo.branch(&branch_name, &commit, true)?;
 
-    // Checkout the new branch
-    let mut checkout_options = CheckoutBuilder::new();
-    checkout_options.force();
-    repo.checkout_tree(commit.as_object(), Some(&mut checkout_options))?;
+    // Set HEAD to the new branch
     repo.set_head(&format!("refs/heads/{}", branch_name))?;
 
     push_to_remote(repo, &branch_name)?;
 
-    info!(
-        "Successfully processed and saved version {}",
-        version.version
-    );
+    info!("Successfully processed and saved version {}", version.version);
 
     Ok(commit_id)
 }
 
+async fn clear_working_directory(workdir: &Path) -> Result<()> {
+    let workdir = workdir.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        for entry in std::fs::read_dir(&workdir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() && path.file_name().unwrap() != ".git" {
+                std::fs::remove_dir_all(path)?;
+            } else if path.is_file() {
+                std::fs::remove_file(path)?;
+            }
+        }
+        Ok::<(), std::io::Error>(())
+    })
+    .await??;
+    Ok(())
+}
+
 #[instrument(skip(path))]
-fn write_version_file(path: &Path, version: &str) -> Result<()> {
+async fn write_version_file(path: &Path, version: &str) -> Result<()> {
     let version_txt_content = format!("{}\n", version);
     let version_txt_path = path.join("version.txt");
-    fs::write(&version_txt_path, version_txt_content)?;
+    tokio::fs::write(&version_txt_path, version_txt_content)
+        .await
+        .context("Failed to write version file")?;
     info!("Written version file: {:?}", version_txt_path);
     Ok(())
 }
 
 #[instrument(skip(repo, src_path))]
-fn copy_files_to_repo(repo: &Repository, src_path: &Path) -> Result<()> {
-    let repo_root = repo.workdir().context("Failed to get workdir")?;
-    debug!("Copying files from {:?} to {:?}", src_path, repo_root);
-    utils::copy_dir_all(src_path, repo_root, &[])?;
-    info!("Files copied to repository");
+async fn copy_files_to_repo(repo: &Repository, src_path: &Path) -> Result<()> {
+    let repo_root = repo
+        .workdir()
+        .context("Failed to get workdir")?
+        .to_path_buf();
+    let src_path = src_path.to_path_buf();
+
+    tokio::task::spawn_blocking(move || {
+        debug!("Copying files from {:?} to {:?}", src_path, repo_root);
+        utils::copy_dir_all(&src_path, &repo_root, &[])?;
+        info!("Files copied to repository");
+        Ok::<(), anyhow::Error>(())
+    })
+    .await??;
+
     Ok(())
 }
 

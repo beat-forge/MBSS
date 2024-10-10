@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 use zip::ZipArchive;
@@ -49,40 +48,46 @@ pub async fn download_depot_downloader() -> Result<()> {
     fs::create_dir_all(bin_dir).context("Failed to create bin directory")?;
 
     let temp_zip = bin_dir.join("depot_downloader_temp.zip");
-    let mut temp_file = File::create(&temp_zip)
-        .context("Failed to create temporary zip file for DepotDownloader")?;
-    temp_file
-        .write_all(&zip_content)
+    tokio::fs::write(&temp_zip, &zip_content)
+        .await
         .context("Failed to write DepotDownloader zip content to temporary file")?;
 
     debug!("Extracting DepotDownloader zip file");
-    let mut archive = ZipArchive::new(
-        File::open(&temp_zip).context("Failed to open DepotDownloader zip file for extraction")?,
-    )?;
+    let temp_zip_clone = temp_zip.clone();
     let target_dir = bin_dir.join("DepotDownloader");
     fs::create_dir_all(&target_dir).context("Failed to create DepotDownloader target directory")?;
 
-    for i in 0..archive.len() {
-        let mut file = archive
-            .by_index(i)
-            .context("Failed to access file in DepotDownloader zip archive")?;
-        let outpath = target_dir.join(file.mangled_name());
+    let target_dir_clone = target_dir.clone();
 
-        if file.name().ends_with('/') {
-            fs::create_dir_all(&outpath)
-                .context("Failed to create directory during DepotDownloader extraction")?;
-        } else {
-            if let Some(parent) = outpath.parent() {
-                fs::create_dir_all(parent).context(
-                    "Failed to create parent directory during DepotDownloader extraction",
-                )?;
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::open(&temp_zip_clone)
+            .context("Failed to open DepotDownloader zip file for extraction")?;
+        let mut archive = ZipArchive::new(file)?;
+
+        for i in 0..archive.len() {
+            let mut file = archive
+                .by_index(i)
+                .context("Failed to access file in DepotDownloader zip archive")?;
+            let outpath = target_dir_clone.join(file.mangled_name());
+
+            if file.name().ends_with('/') {
+                fs::create_dir_all(&outpath)
+                    .context("Failed to create directory during DepotDownloader extraction")?;
+            } else {
+                if let Some(parent) = outpath.parent() {
+                    fs::create_dir_all(parent).context(
+                        "Failed to create parent directory during DepotDownloader extraction",
+                    )?;
+                }
+                let mut outfile = fs::File::create(&outpath)
+                    .context("Failed to create output file during DepotDownloader extraction")?;
+                std::io::copy(&mut file, &mut outfile)
+                    .context("Failed to copy file content during DepotDownloader extraction")?;
             }
-            let mut outfile = File::create(&outpath)
-                .context("Failed to create output file during DepotDownloader extraction")?;
-            std::io::copy(&mut file, &mut outfile)
-                .context("Failed to copy file content during DepotDownloader extraction")?;
         }
-    }
+        Ok::<(), anyhow::Error>(())
+    })
+    .await??;
 
     fs::remove_file(temp_zip).context("Failed to remove temporary DepotDownloader zip file")?;
 
@@ -134,41 +139,46 @@ pub async fn download_generic_stripper() -> Result<()> {
     fs::create_dir_all(bin_dir).context("Failed to create bin directory")?;
 
     let temp_zip = bin_dir.join("generic_stripper_temp.zip");
-    let mut temp_file = File::create(&temp_zip)
-        .context("Failed to create temporary zip file for GenericStripper")?;
-    temp_file
-        .write_all(&zip_content)
+    tokio::fs::write(&temp_zip, &zip_content)
+        .await
         .context("Failed to write GenericStripper zip content to temporary file")?;
 
     debug!("Extracting GenericStripper zip file");
-    let mut archive = ZipArchive::new(
-        File::open(&temp_zip).context("Failed to open GenericStripper zip file for extraction")?,
-    )?;
-
+    let temp_zip_clone = temp_zip.clone();
     let target_dir = bin_dir.join("GenericStripper");
     fs::create_dir_all(&target_dir).context("Failed to create GenericStripper target directory")?;
 
-    for i in 0..archive.len() {
-        let mut file = archive
-            .by_index(i)
-            .context("Failed to access file in GenericStripper zip archive")?;
-        let outpath = target_dir.join(file.mangled_name());
+    let target_dir_clone = target_dir.clone();
 
-        if file.name().ends_with('/') {
-            fs::create_dir_all(&outpath)
-                .context("Failed to create directory during GenericStripper extraction")?;
-        } else {
-            if let Some(parent) = outpath.parent() {
-                fs::create_dir_all(parent).context(
-                    "Failed to create parent directory during GenericStripper extraction",
-                )?;
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::open(&temp_zip_clone)
+            .context("Failed to open GenericStripper zip file for extraction")?;
+        let mut archive = ZipArchive::new(file)?;
+
+        for i in 0..archive.len() {
+            let mut file = archive
+                .by_index(i)
+                .context("Failed to access file in GenericStripper zip archive")?;
+            let outpath = target_dir_clone.join(file.mangled_name());
+
+            if file.name().ends_with('/') {
+                fs::create_dir_all(&outpath)
+                    .context("Failed to create directory during GenericStripper extraction")?;
+            } else {
+                if let Some(parent) = outpath.parent() {
+                    fs::create_dir_all(parent).context(
+                        "Failed to create parent directory during GenericStripper extraction",
+                    )?;
+                }
+                let mut outfile = fs::File::create(&outpath)
+                    .context("Failed to create output file during GenericStripper extraction")?;
+                std::io::copy(&mut file, &mut outfile)
+                    .context("Failed to copy file content during GenericStripper extraction")?;
             }
-            let mut outfile = File::create(&outpath)
-                .context("Failed to create output file during GenericStripper extraction")?;
-            std::io::copy(&mut file, &mut outfile)
-                .context("Failed to copy file content during GenericStripper extraction")?;
         }
-    }
+        Ok::<(), anyhow::Error>(())
+    })
+    .await??;
 
     fs::remove_file(temp_zip).context("Failed to remove temporary GenericStripper zip file")?;
 
@@ -236,7 +246,7 @@ pub async fn download_version(
     }
 
     info!("Downloading version {}", version.version);
-    let status = std::process::Command::new(depot_downloader)
+    let status = tokio::process::Command::new(depot_downloader)
         .arg("-username")
         .arg(std::env::var("STEAM_USERNAME").context("STEAM_USERNAME not set")?)
         .arg("-password")
@@ -251,6 +261,7 @@ pub async fn download_version(
         .arg("-dir")
         .arg(&download_path)
         .status()
+        .await
         .context("Failed to execute DepotDownloader")?;
 
     if !status.success() {
@@ -285,7 +296,7 @@ pub async fn strip_version(download_path: &Path, generic_stripper: &Path) -> Res
     let download_path_str = download_path.to_str().context("Invalid download path")?;
     let stripped_path_str = stripped_path.to_str().context("Invalid stripped path")?;
 
-    let status = std::process::Command::new(generic_stripper)
+    let status = tokio::process::Command::new(generic_stripper)
         .arg("strip")
         .arg("-m")
         .arg("beatsaber")
@@ -294,6 +305,7 @@ pub async fn strip_version(download_path: &Path, generic_stripper: &Path) -> Res
         .arg("-o")
         .arg(stripped_path_str)
         .status()
+        .await
         .context("Failed to execute GenericStripper")?;
 
     if !status.success() {
