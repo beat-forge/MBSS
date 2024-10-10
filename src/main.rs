@@ -166,7 +166,6 @@ async fn process_versions(
     let mut latest_commit_id = None;
     let mut previous_version: Option<&Version> = None;
 
-    // Fetch all remote branches
     fetch_remote_branches(repo)?;
 
     for version in versions_file.versions.iter() {
@@ -182,7 +181,6 @@ async fn process_versions(
             }
         }
 
-        // Check if the branch exists on the remote
         if branch_exists_on_remote(repo, &branch_name)? {
             info!(
                 "Version {} exists on remote, updating local",
@@ -203,7 +201,6 @@ async fn process_versions(
         previous_version = Some(&version.version);
     }
 
-    // Update versions/latest branch
     if let Some(commit_id) = latest_commit_id {
         update_latest_branch(repo, commit_id)?;
     }
@@ -221,7 +218,6 @@ async fn process_version(
     let branch_name = format!("version/{}", version.version);
     info!("Processing version: {}", version.version);
 
-    // Delete the branch if it already exists
     if let Ok(mut branch) = repo.find_branch(&branch_name, BranchType::Local) {
         info!("Deleting existing branch {}", branch_name);
         branch.delete()?;
@@ -252,18 +248,15 @@ async fn process_version(
         download_path
     };
 
-    // Clear the working directory
     let workdir = repo
         .workdir()
         .context("Failed to get workdir")?
         .to_path_buf();
     clear_working_directory(&workdir).await?;
 
-    // Copy files and create version.txt
     copy_files_to_repo(repo, &processed_path).await?;
     write_version_file(&workdir, &version.version.to_string()).await?;
 
-    // Stage all changes
     let mut index = repo.index()?;
     index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
     index.write()?;
@@ -274,7 +267,6 @@ async fn process_version(
     let signature = Signature::now("MBSS", "mbss@beatforge.net")?;
     let commit_message = format!("feat: create version {}", version.version);
 
-    // Create the commit
     let commit_id = if let Some(prev_version) = previous_version {
         let prev_branch_name = format!("version/{}", prev_version);
         let prev_branch = repo.find_branch(&prev_branch_name, BranchType::Local)?;
@@ -288,15 +280,12 @@ async fn process_version(
             &[&prev_commit],
         )?
     } else {
-        // For the first version, create a commit without a parent
         repo.commit(None, &signature, &signature, &commit_message, &tree, &[])?
     };
 
-    // Create or update the branch to point to the new commit
     let commit = repo.find_commit(commit_id)?;
     repo.branch(&branch_name, &commit, true)?;
 
-    // Set HEAD to the new branch
     repo.set_head(&format!("refs/heads/{}", branch_name))?;
 
     push_to_remote(repo, &branch_name)?;
@@ -382,9 +371,7 @@ fn push_to_remote(repo: &Repository, branch_name: &str) -> Result<()> {
         let mut callbacks = git2::RemoteCallbacks::new();
         callbacks.credentials(|_url, username_from_url, _allowed_types| {
             let username = username_from_url.unwrap_or("git");
-            let token = std::env::var("GITHUB_TOKEN")
-                .context("GITHUB_TOKEN not set")
-                .unwrap();
+            let token = std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN not set").unwrap();
             git2::Cred::userpass_plaintext(username, &token)
         });
         callbacks.push_update_reference(|refname, status| {
@@ -413,6 +400,7 @@ fn fetch_remote_branches(repo: &Repository) -> Result<()> {
         info!("Fetching remote branches");
         let mut fetch_options = git2::FetchOptions::new();
         fetch_options.download_tags(git2::AutotagOption::All);
+        fetch_options.remote_callbacks(get_remote_callbacks());
         remote.fetch(&[] as &[&str], Some(&mut fetch_options), None)?;
     }
     Ok(())
@@ -454,4 +442,14 @@ fn update_latest_branch(repo: &Repository, commit_id: git2::Oid) -> Result<()> {
     }
     push_to_remote(repo, "versions/latest")?;
     Ok(())
+}
+
+fn get_remote_callbacks() -> git2::RemoteCallbacks<'static> {
+    let mut callbacks = git2::RemoteCallbacks::new();
+    callbacks.credentials(|_url, username_from_url, _allowed_types| {
+        let username = username_from_url.unwrap_or("git");
+        let token = std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN not set");
+        git2::Cred::userpass_plaintext(username, &token)
+    });
+    callbacks
 }
