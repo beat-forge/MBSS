@@ -56,14 +56,18 @@ jobs:
         
       - name: Build (default features)
         run: cargo build --release
+
+      - name: Rename and copy artifacts
+        run: |
+          move target\release\mbss.exe mbss-strip.exe
+        shell: cmd
         
       - name: Build (no default features)
         run: cargo build --release --no-default-features
-        
+      
       - name: Rename and copy artifacts
         run: |
-          move target\release\mbss.exe mbss.exe
-          copy mbss.exe mbss-nostrip.exe
+          move target\release\mbss.exe mbss-nostrip.exe
         shell: cmd
         
       - name: Upload artifacts
@@ -71,9 +75,9 @@ jobs:
         with:
           name: mbss-executables
           path: |
-            mbss.exe
+            mbss-strip.exe
             mbss-nostrip.exe
-            
+
   update-latest:
     name: Update Latest Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -93,7 +97,7 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            mbss.exe
+            mbss-strip.exe
             mbss-nostrip.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

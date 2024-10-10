@@ -270,7 +270,10 @@ pub async fn strip_version(download_path: &Path, generic_stripper: &Path) -> Res
     let stripped_path = stripped_dir.join(download_path.file_name().unwrap());
 
     if stripped_path.exists() {
-        info!("Version {:?} already stripped", download_path.file_name().unwrap());
+        info!(
+            "Version {:?} already stripped",
+            download_path.file_name().unwrap()
+        );
         return Ok(stripped_path);
     }
 
